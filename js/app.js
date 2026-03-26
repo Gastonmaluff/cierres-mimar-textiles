@@ -24,7 +24,8 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
-const APP_VERSION = "2026-03-26b";
+const APP_VERSION = "2026-03-26c";
+const FIRESTORE_STEP_TIMEOUT_MS = 15000;
 
 const state = {
   firebaseReady: false,
@@ -85,6 +86,26 @@ function formatErrorMessage(error) {
 
   const code = error.code ? `[${error.code}] ` : "";
   return `${code}${error.message || String(error)}`;
+}
+
+function withTimeout(promise, timeoutMs, stepLabel) {
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      reject(
+        new Error(
+          `${stepLabel} no respondio dentro de ${Math.round(timeoutMs / 1000)} segundos.`,
+        ),
+      );
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  });
 }
 
 function formatInlineCurrency(value) {
@@ -680,11 +701,21 @@ async function createProductFromUnmapped(row) {
   renderAll();
 
   try {
-    const savedProduct = await saveProduct(productPayload);
+    console.info("[create-product] Paso 1/3: guardando en products");
+    const savedProduct = await withTimeout(
+      saveProduct(productPayload),
+      FIRESTORE_STEP_TIMEOUT_MS,
+      "La escritura en products",
+    );
     const savedAliases = [];
 
     for (const aliasPayload of aliasPayloads) {
-      const savedAlias = await saveAlias(aliasPayload);
+      console.info("[create-product] Paso 2/3: guardando alias", aliasPayload);
+      const savedAlias = await withTimeout(
+        saveAlias(aliasPayload),
+        FIRESTORE_STEP_TIMEOUT_MS,
+        "La escritura en product_aliases",
+      );
       savedAliases.push(savedAlias);
     }
 
@@ -702,7 +733,12 @@ async function createProductFromUnmapped(row) {
     renderAll();
 
     try {
-      await refreshMasterData();
+      console.info("[create-product] Paso 3/3: recargando products desde Firestore");
+      await withTimeout(
+        refreshMasterData(),
+        FIRESTORE_STEP_TIMEOUT_MS,
+        "La recarga de products desde Firestore",
+      );
       recomputeClosure();
     } catch (refreshError) {
       console.error("[create-product] El producto se guardo, pero fallo la recarga desde Firestore", refreshError);

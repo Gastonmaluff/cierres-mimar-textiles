@@ -10,13 +10,16 @@ import {
 const FIELD_CANDIDATES = {
   dateTime: ["fecha hora", "data hora", "date time", "fecha", "data"],
   description: [
+    "descripcion de productos",
     "descripcion de items",
     "descripcion de item",
     "descripcion",
+    "detalle de productos",
+    "detalle de venta",
+    "detalle",
     "descricion de items",
     "itens",
     "items",
-    "item",
     "productos",
     "produto",
     "producto",
@@ -33,6 +36,21 @@ const FIELD_CANDIDATES = {
   observation: ["observacion", "observacao", "observation", "nota", "nota interna"],
 };
 
+const DESCRIPTION_HEADER_BLOCKLIST = [
+  "id",
+  "indice",
+  "index",
+  "contador",
+  "count",
+  "codigo",
+  "code",
+  "sku",
+  "numero",
+  "nro",
+  "item id",
+  "order id",
+];
+
 function getFieldValue(record, fieldName) {
   for (const [header, rawValue] of Object.entries(record)) {
     const normalizedHeader = normalizeKey(header);
@@ -42,6 +60,105 @@ function getFieldValue(record, fieldName) {
   }
 
   return "";
+}
+
+function isNumericLike(value) {
+  const text = String(value || "").trim();
+  return Boolean(text) && /^[\d\s.,\-]+$/.test(text);
+}
+
+function hasUsefulLetters(value) {
+  return /[a-z]/i.test(String(value || ""));
+}
+
+function isMeaningfulDescription(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return false;
+  }
+
+  if (isNumericLike(text)) {
+    return false;
+  }
+
+  if (!hasUsefulLetters(text)) {
+    return false;
+  }
+
+  return normalizeKey(text).length >= 3;
+}
+
+function scoreDescriptionHeader(header, values) {
+  const normalizedHeader = normalizeKey(header);
+  if (!normalizedHeader || normalizedHeader.startsWith("__")) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  let score = 0;
+
+  if (FIELD_CANDIDATES.description.some((candidate) => normalizedHeader === candidate)) {
+    score += 120;
+  }
+
+  FIELD_CANDIDATES.description.forEach((candidate) => {
+    if (normalizedHeader.includes(candidate)) {
+      score += 35;
+    }
+  });
+
+  if (DESCRIPTION_HEADER_BLOCKLIST.some((blocked) => normalizedHeader === blocked)) {
+    score -= 140;
+  }
+
+  if (DESCRIPTION_HEADER_BLOCKLIST.some((blocked) => normalizedHeader.includes(blocked))) {
+    score -= 70;
+  }
+
+  const nonEmptyValues = values.map((value) => String(value || "").trim()).filter(Boolean);
+  const meaningfulValues = nonEmptyValues.filter(isMeaningfulDescription);
+  const numericValues = nonEmptyValues.filter(isNumericLike);
+  const quantityPatternValues = nonEmptyValues.filter((value) =>
+    /(\d+(?:[.,]\d+)?)\s*x\s+[^\d]|[^\d].*?\s*x\s*(\d+(?:[.,]\d+)?)/i.test(value),
+  );
+
+  score += meaningfulValues.length * 8;
+  score += quantityPatternValues.length * 12;
+  score -= numericValues.length * 14;
+
+  if (nonEmptyValues.length > 0) {
+    score += (meaningfulValues.length / nonEmptyValues.length) * 30;
+    score -= (numericValues.length / nonEmptyValues.length) * 40;
+  }
+
+  return score;
+}
+
+function detectDescriptionColumn(records) {
+  const sampleRecords = records.slice(0, 12);
+  const headers = Object.keys(sampleRecords[0] || {}).filter((header) => !header.startsWith("__"));
+  const scoredHeaders = headers
+    .map((header) => ({
+      header,
+      score: scoreDescriptionHeader(
+        header,
+        sampleRecords.map((record) => record[header]),
+      ),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const bestMatch = scoredHeaders[0];
+  if (!bestMatch || bestMatch.score < 20) {
+    console.warn("[kyte-parser] No se detecto una columna confiable para descripcion.", scoredHeaders);
+    return null;
+  }
+
+  console.info(
+    `[kyte-parser] Columna de descripcion detectada: "${bestMatch.header}" (score ${bestMatch.score.toFixed(
+      1,
+    )})`,
+  );
+
+  return bestMatch.header;
 }
 
 function normalizeDescription(description) {
@@ -72,14 +189,28 @@ function splitDescriptionIntoSegments(description) {
           .filter(Boolean);
       }
 
-      if ((trimmed.match(/,/g) || []).length && (trimmed.match(/\bx\s*\d+|\d+\s*x\b/gi) || []).length > 1) {
+      if (
+        (trimmed.match(/,/g) || []).length &&
+        (trimmed.match(/\bx\s*\d+|\d+\s*x\b/gi) || []).length > 1
+      ) {
         return trimmed.split(",").map((item) => item.trim());
+      }
+
+      if ((trimmed.match(/,/g) || []).length) {
+        const commaParts = trimmed
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean);
+
+        if (commaParts.length > 1 && commaParts.every(isMeaningfulDescription)) {
+          return commaParts;
+        }
       }
 
       return [trimmed];
     })
     .map((segment) => segment.trim())
-    .filter(Boolean);
+    .filter(isMeaningfulDescription);
 }
 
 function extractDetectedSubtotal(segment) {
@@ -101,7 +232,7 @@ function cleanItemName(segment) {
 
 function parseItemSegment(segment, fallbackQuantity = 1, saleIndex = 0, itemIndex = 0) {
   const text = String(segment || "").trim();
-  if (!text) {
+  if (!isMeaningfulDescription(text)) {
     return null;
   }
 
@@ -138,13 +269,16 @@ function parseItemSegment(segment, fallbackQuantity = 1, saleIndex = 0, itemInde
 
   const detectedSubtotal = extractDetectedSubtotal(working);
   const name = cleanItemName(working);
-  const normalizedName = normalizeKey(name);
+
+  if (!isMeaningfulDescription(name)) {
+    return null;
+  }
 
   return {
     id: `sale-${saleIndex}-item-${itemIndex}-${slugify(name || text || "item")}`,
     rawDescription: text,
     name,
-    normalizedName,
+    normalizedName: normalizeKey(name),
     quantity: quantity || 1,
     quantityWasExplicit: explicitQuantity,
     detectedSubtotal,
@@ -153,9 +287,21 @@ function parseItemSegment(segment, fallbackQuantity = 1, saleIndex = 0, itemInde
 }
 
 export function parseKyteSales(records) {
+  const descriptionHeader = detectDescriptionColumn(records);
+
   return records
     .map((record, index) => {
-      const description = getFieldValue(record, "description");
+      const description = descriptionHeader
+        ? String(record[descriptionHeader] || "").trim()
+        : getFieldValue(record, "description");
+
+      console.info(
+        `[kyte-parser] Fila ${record.__rowNumber || index + 2}: texto extraido de "${
+          descriptionHeader || "fallback"
+        }" =>`,
+        description,
+      );
+
       const fallbackQuantity = parseMoney(getFieldValue(record, "quantity")) || 1;
       const subtotal = parseMoney(getFieldValue(record, "subtotal"));
       const discount = parseMoney(getFieldValue(record, "discount"));
@@ -175,7 +321,9 @@ export function parseKyteSales(records) {
         .filter(Boolean);
       const dateTime = parseFlexibleDate(getFieldValue(record, "dateTime"));
       const totalQuantity =
-        parseMoney(getFieldValue(record, "quantity")) || sumBy(parsedItems, (item) => item.quantity) || 1;
+        parseMoney(getFieldValue(record, "quantity")) ||
+        sumBy(parsedItems, (item) => item.quantity) ||
+        1;
       const saleId = `sale-${index + 1}-${slugify(
         `${dateTime?.toISOString() || index}-${description}-${getFieldValue(record, "customer")}`,
       )}`;
@@ -194,23 +342,14 @@ export function parseKyteSales(records) {
         customer: getFieldValue(record, "customer"),
         seller: getFieldValue(record, "seller"),
         observation: getFieldValue(record, "observation"),
-        parsedItems:
-          parsedItems.length > 0
-            ? parsedItems
-            : [
-                {
-                  id: `sale-${index + 1}-item-1-${slugify(description || "item")}`,
-                  rawDescription: description,
-                  name: description || "Ítem sin descripción",
-                  normalizedName: normalizeKey(description || "item"),
-                  quantity: fallbackQuantity,
-                  quantityWasExplicit: false,
-                  detectedSubtotal: subtotal || null,
-                  aliasCandidates: buildAliasCandidates(description || "item"),
-                },
-              ],
+        parsedItems: parsedItems.length > 0 ? parsedItems : [],
         rawRecord: record,
       };
     })
-    .filter((sale) => sale.description || sale.total || sale.subtotal);
+    .filter(
+      (sale) =>
+        (isMeaningfulDescription(sale.description) && sale.parsedItems.length > 0) ||
+        sale.total ||
+        sale.subtotal,
+    );
 }

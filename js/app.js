@@ -84,8 +84,16 @@ function formatErrorMessage(error) {
     return "Error desconocido.";
   }
 
+  const rawMessage = error.message || String(error);
+  if (
+    /database\s+\(default\)\s+does\s+not\s+exist/i.test(rawMessage) ||
+    /cloud firestore database/i.test(rawMessage)
+  ) {
+    return "La base Cloud Firestore (default) no existe en este proyecto Firebase. Creala en la consola de Firebase antes de usar la app.";
+  }
+
   const code = error.code ? `[${error.code}] ` : "";
-  return `${code}${error.message || String(error)}`;
+  return `${code}${rawMessage}`;
 }
 
 function withTimeout(promise, timeoutMs, stepLabel) {
@@ -984,11 +992,9 @@ async function init() {
     await refreshMasterData();
   } catch (error) {
     state.firebaseReady = false;
-    setFirebaseStatus("Firebase no disponible", "warning");
-    setMessage(
-      "La app igual puede procesar CSV, pero Firestore no respondio. Revisa reglas y conexion.",
-      "warning",
-    );
+    setFirebaseStatus("Firestore no disponible", "danger");
+    setMessage(formatErrorMessage(error), "error");
+    console.error("[firebase] Error de inicializacion o lectura inicial", error);
   }
 
   renderAll();

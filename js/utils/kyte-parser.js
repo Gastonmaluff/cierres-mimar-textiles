@@ -10,6 +10,8 @@ import {
 const FIELD_CANDIDATES = {
   dateTime: ["fecha hora", "data hora", "date time", "fecha", "data"],
   description: [
+    "descri items",
+    "descri item",
     "descripcion de productos",
     "descripcion de items",
     "descripcion de item",
@@ -49,6 +51,9 @@ const DESCRIPTION_HEADER_BLOCKLIST = [
   "nro",
   "item id",
   "order id",
+  "total de items",
+  "total items",
+  "cantidad de items",
 ];
 
 function getFieldValue(record, fieldName) {

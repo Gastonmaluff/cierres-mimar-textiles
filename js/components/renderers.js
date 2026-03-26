@@ -165,7 +165,28 @@ export function renderPartnerSummary(rows) {
   `;
 }
 
-export function renderUnmappedProducts(groups, products, copiedConfig, productCreationStatus = {}) {
+function renderAllocationOptions(selectedValue = "profit_percentage") {
+  const options = [
+    { value: "profit_percentage", label: "Reparto sobre utilidad" },
+    { value: "sale_percentage", label: "Reparto sobre venta" },
+    { value: "fixed_amount", label: "Monto fijo por unidad" },
+  ];
+
+  return options
+    .map(
+      (option) =>
+        `<option value="${option.value}" ${selectedValue === option.value ? "selected" : ""}>${option.label}</option>`,
+    )
+    .join("");
+}
+
+export function renderUnmappedProducts(
+  groups,
+  products,
+  copiedConfig,
+  productCreationStatus = {},
+  formDrafts = {},
+) {
   if (!groups?.length) {
     return '<span class="tag success">Todo el cierre quedo mapeado automaticamente.</span>';
   }
@@ -177,6 +198,7 @@ export function renderUnmappedProducts(groups, products, copiedConfig, productCr
       const encodedKey = encodeURIComponent(group.normalizedKey);
       const suggestion = similarSuggestionMap.get(group.normalizedKey);
       const rowStatus = productCreationStatus[group.normalizedKey] || null;
+      const draft = formDrafts[group.normalizedKey] || {};
 
       return `
         <tr data-unmapped-row data-unmapped-key="${encodedKey}" data-row-index="${index}">
@@ -200,17 +222,23 @@ export function renderUnmappedProducts(groups, products, copiedConfig, productCr
               </div>
               <div class="inline-form two-columns">
                 <input class="create-base-name" type="text" value="${escapeHtml(
-                  titleCase(group.primaryLabel),
+                  draft.baseName || titleCase(group.primaryLabel),
                 )}" placeholder="Nombre base" />
-                <input class="create-provider" type="text" placeholder="Proveedor" />
-                <input class="create-cost" type="number" step="0.01" placeholder="Costo real unitario" />
+                <input class="create-provider" type="text" value="${escapeHtml(
+                  draft.provider || "",
+                )}" placeholder="Proveedor" />
+                <input class="create-cost" type="number" step="0.01" value="${escapeHtml(
+                  draft.cost ?? "",
+                )}" placeholder="Costo real unitario" />
                 <select class="create-allocation-type">
-                  <option value="profit_percentage">Reparto sobre utilidad</option>
-                  <option value="sale_percentage">Reparto sobre venta</option>
-                  <option value="fixed_amount">Monto fijo por unidad</option>
+                  ${renderAllocationOptions(draft.allocationType || "profit_percentage")}
                 </select>
-                <input class="create-maria-share" type="number" step="0.01" placeholder="Valor Maria" />
-                <input class="create-gaston-share" type="number" step="0.01" placeholder="Valor Gaston" />
+                <input class="create-maria-share" type="number" step="0.01" value="${escapeHtml(
+                  draft.mariaShareValue ?? "",
+                )}" placeholder="Valor Maria" />
+                <input class="create-gaston-share" type="number" step="0.01" value="${escapeHtml(
+                  draft.gastonShareValue ?? "",
+                )}" placeholder="Valor Gaston" />
               </div>
               <div class="inline-actions compact-actions">
                 <button class="tiny-button" type="button" data-action="copy-config">

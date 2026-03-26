@@ -37,6 +37,7 @@ const state = {
   sourceFileName: "",
   copiedConfig: null,
   productCreationStatus: {},
+  unmappedFormDrafts: {},
 };
 
 const elements = {
@@ -131,6 +132,7 @@ function renderAll() {
     state.products,
     state.copiedConfig,
     state.productCreationStatus,
+    state.unmappedFormDrafts,
   );
   elements.productsCatalogContainer.innerHTML = renderProductsCatalog(
     state.products,
@@ -239,8 +241,33 @@ function setRowStatus(normalizedKey, status) {
   };
 }
 
+function setRowDraft(normalizedKey, draft) {
+  if (!normalizedKey) {
+    return;
+  }
+
+  state.unmappedFormDrafts = {
+    ...state.unmappedFormDrafts,
+    [normalizedKey]: {
+      ...(state.unmappedFormDrafts[normalizedKey] || {}),
+      ...draft,
+    },
+  };
+}
+
+function clearRowDraft(normalizedKey) {
+  if (!normalizedKey) {
+    return;
+  }
+
+  const nextDrafts = { ...state.unmappedFormDrafts };
+  delete nextDrafts[normalizedKey];
+  state.unmappedFormDrafts = nextDrafts;
+}
+
 function readConfigFromRow(row) {
   return {
+    baseName: row.querySelector(".create-base-name")?.value?.trim() || "",
     provider: row.querySelector(".create-provider")?.value?.trim() || "",
     cost: parseMoney(row.querySelector(".create-cost")?.value),
     allocationType: row.querySelector(".create-allocation-type")?.value || "profit_percentage",
@@ -392,6 +419,22 @@ function validateProductDraft(row) {
   };
 }
 
+function persistDraftFromRow(row) {
+  const normalizedKey = decodeURIComponent(row.dataset.unmappedKey || "");
+  if (!normalizedKey) {
+    return;
+  }
+
+  setRowDraft(normalizedKey, {
+    baseName: row.querySelector(".create-base-name")?.value?.trim() || "",
+    provider: row.querySelector(".create-provider")?.value?.trim() || "",
+    cost: row.querySelector(".create-cost")?.value?.trim() || "",
+    allocationType: row.querySelector(".create-allocation-type")?.value || "profit_percentage",
+    mariaShareValue: row.querySelector(".create-maria-share")?.value?.trim() || "",
+    gastonShareValue: row.querySelector(".create-gaston-share")?.value?.trim() || "",
+  });
+}
+
 function getRowPrimaryLabel(row) {
   return row.querySelector("td strong")?.textContent?.trim() || "esta fila";
 }
@@ -423,6 +466,7 @@ function pasteConfigurationIntoRow(row, config, successMessage) {
     return;
   }
 
+  persistDraftFromRow(row);
   setMessage(successMessage, "info");
 }
 
@@ -456,6 +500,7 @@ async function processCsvText(text, fileName) {
   state.manualAdjustments = [];
   state.sourceFileName = fileName || "archivo.csv";
   state.productCreationStatus = {};
+  state.unmappedFormDrafts = {};
   recomputeClosure();
 }
 
@@ -552,10 +597,13 @@ async function createProductFromUnmapped(row) {
     (item) => item.normalizedKey === normalizedKey,
   );
 
+  persistDraftFromRow(row);
   console.info("[create-product] Click en crear producto", {
     normalizedKey,
     group,
   });
+  console.info("CLICK crear producto");
+  console.info("[create-product] Datos de la fila", row.dataset);
   console.info("[create-product] Estado actual del formulario", {
     baseName: row.querySelector(".create-base-name")?.value?.trim() || "",
     provider: row.querySelector(".create-provider")?.value?.trim() || "",
@@ -671,6 +719,7 @@ async function createProductFromUnmapped(row) {
       return;
     }
 
+    clearRowDraft(normalizedKey);
     setRowStatus(normalizedKey, null);
     setMessage("Producto creado correctamente.", "info");
   } catch (error) {
@@ -770,6 +819,23 @@ function handleUnmappedActions(event) {
   }
 }
 
+function handleUnmappedFieldEdit(event) {
+  const target = event.target.closest(
+    ".create-base-name, .create-provider, .create-cost, .create-allocation-type, .create-maria-share, .create-gaston-share",
+  );
+  if (!target) {
+    return;
+  }
+
+  const row = target.closest("[data-unmapped-row]");
+  if (!row) {
+    return;
+  }
+
+  target.classList.remove("input-error");
+  persistDraftFromRow(row);
+}
+
 function handleAdjustmentsSubmit(event) {
   event.preventDefault();
 
@@ -860,6 +926,8 @@ async function init() {
   elements.adjustmentForm.addEventListener("submit", handleAdjustmentsSubmit);
   elements.adjustmentScopeInput.addEventListener("change", updateAdjustmentTargets);
   elements.unmappedProductsContainer.addEventListener("click", handleUnmappedActions);
+  elements.unmappedProductsContainer.addEventListener("input", handleUnmappedFieldEdit);
+  elements.unmappedProductsContainer.addEventListener("change", handleUnmappedFieldEdit);
   elements.adjustmentsListContainer.addEventListener("click", handleAdjustmentListClick);
   elements.closureHistoryContainer.addEventListener("click", handleHistoryClick);
   elements.closureDateInput.addEventListener("change", () => {

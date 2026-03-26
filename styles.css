@@ -492,6 +492,34 @@ td strong,
   color: var(--brand);
 }
 
+.editing-row td {
+  background: rgba(15, 118, 110, 0.04);
+}
+
+.inline-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.catalog-input {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid rgba(20, 33, 31, 0.12);
+  border-radius: 12px;
+  background: var(--paper-strong);
+  color: var(--ink);
+}
+
+.catalog-actions {
+  min-width: 220px;
+}
+
 .history-list {
   display: grid;
   gap: 10px;

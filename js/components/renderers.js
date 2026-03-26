@@ -317,7 +317,60 @@ export function renderUnmappedProducts(
   `;
 }
 
-export function renderProductsCatalog(products, aliases) {
+function getSplitValueLabels(allocationType) {
+  if (allocationType === "fixed_amount") {
+    return {
+      maria: "Maria (Gs por unidad)",
+      gaston: "Gaston (Gs por unidad)",
+    };
+  }
+
+  return {
+    maria: "Maria (%)",
+    gaston: "Gaston (%)",
+  };
+}
+
+function getSplitWarnings(draft) {
+  if (!draft || draft.allocationType === "fixed_amount") {
+    return [];
+  }
+
+  const maria = Number(draft.mariaShareValue) || 0;
+  const gaston = Number(draft.gastonShareValue) || 0;
+  const warnings = [];
+
+  if (maria > 100) {
+    warnings.push("Maria supera 100%.");
+  }
+
+  if (gaston > 100) {
+    warnings.push("Gaston supera 100%.");
+  }
+
+  if (maria + gaston > 100) {
+    warnings.push("La suma de Maria y Gaston supera 100%.");
+  }
+
+  return warnings;
+}
+
+function renderSplitTypeOptions(selectedValue) {
+  const options = [
+    { value: "profit_percentage", label: "Reparto sobre utilidad" },
+    { value: "sale_percentage", label: "Reparto sobre venta" },
+    { value: "fixed_amount", label: "Monto fijo por unidad" },
+  ];
+
+  return options
+    .map(
+      (option) =>
+        `<option value="${option.value}" ${selectedValue === option.value ? "selected" : ""}>${option.label}</option>`,
+    )
+    .join("");
+}
+
+export function renderProductsCatalog(products, aliases, productEditState = {}) {
   if (!products?.length) {
     return "Todavia no hay productos cargados en Firestore.";
   }
@@ -331,24 +384,128 @@ export function renderProductsCatalog(products, aliases) {
   });
 
   const body = products
-    .map(
-      (product) => `
-        <tr>
-          <td data-label="Producto"><strong>${escapeHtml(product.baseName)}</strong></td>
-          <td data-label="Proveedor">${escapeHtml(product.provider || "-")}</td>
-          <td data-label="Costo">${formatCurrency(product.realUnitCost)}</td>
-          <td data-label="Reparto">${escapeHtml(product.allocationType || "-")}</td>
-          <td data-label="Maria">${formatNumber(product.mariaShareValue)}</td>
-          <td data-label="Gaston">${formatNumber(product.gastonShareValue)}</td>
-          <td data-label="Alias">${formatNumber(aliasCountByProduct.get(product.id) || 0)}</td>
+    .map((product) => {
+      const editState = productEditState[product.id] || null;
+      const isEditing = Boolean(editState?.isEditing);
+      const draft = editState?.draft || {
+        baseName: product.baseName,
+        provider: product.provider,
+        realUnitCost: product.realUnitCost,
+        allocationType: product.allocationType,
+        mariaShareValue: product.mariaShareValue,
+        gastonShareValue: product.gastonShareValue,
+        isActive: product.isActive !== false,
+      };
+      const labels = getSplitValueLabels(draft.allocationType);
+      const warnings = getSplitWarnings(draft);
+      const rowMessage = editState?.message || "";
+
+      if (!isEditing) {
+        return `
+          <tr data-product-row data-product-id="${escapeHtml(product.id)}">
+            <td data-label="Producto"><strong>${escapeHtml(product.baseName)}</strong></td>
+            <td data-label="Proveedor">${escapeHtml(product.provider || "-")}</td>
+            <td data-label="Costo">${formatCurrency(product.realUnitCost)}</td>
+            <td data-label="Reparto">${escapeHtml(product.allocationType || "-")}</td>
+            <td data-label="Maria">${formatNumber(product.mariaShareValue)}</td>
+            <td data-label="Gaston">${formatNumber(product.gastonShareValue)}</td>
+            <td data-label="Alias">${formatNumber(aliasCountByProduct.get(product.id) || 0)}</td>
+            <td data-label="Estado">
+              <span class="tag ${product.isActive === false ? "warning" : "success"}">
+                ${product.isActive === false ? "Inactivo" : "Activo"}
+              </span>
+            </td>
+            <td data-label="Acciones">
+              <button class="tiny-button" type="button" data-action="edit-product" data-product-id="${escapeHtml(
+                product.id,
+              )}">
+                Editar
+              </button>
+            </td>
+          </tr>
+        `;
+      }
+
+      return `
+        <tr data-product-row data-product-id="${escapeHtml(product.id)}" class="editing-row">
+          <td data-label="Producto">
+            <label class="inline-label">Nombre base</label>
+            <input class="catalog-input product-base-name ${editState?.fieldErrors?.baseName ? "input-error" : ""}" type="text" value="${escapeHtml(
+              draft.baseName || "",
+            )}" />
+          </td>
+          <td data-label="Proveedor">
+            <label class="inline-label">Proveedor</label>
+            <input class="catalog-input product-provider ${editState?.fieldErrors?.provider ? "input-error" : ""}" type="text" value="${escapeHtml(
+              draft.provider || "",
+            )}" />
+          </td>
+          <td data-label="Costo">
+            <label class="inline-label">Costo real unitario</label>
+            <input class="catalog-input product-cost ${editState?.fieldErrors?.realUnitCost ? "input-error" : ""}" type="number" step="0.01" value="${escapeHtml(
+              draft.realUnitCost ?? "",
+            )}" />
+          </td>
+          <td data-label="Reparto">
+            <label class="inline-label">Tipo de reparto</label>
+            <select class="catalog-input product-allocation-type ${editState?.fieldErrors?.allocationType ? "input-error" : ""}">
+              ${renderSplitTypeOptions(draft.allocationType)}
+            </select>
+          </td>
+          <td data-label="Maria">
+            <label class="inline-label">${escapeHtml(labels.maria)}</label>
+            <input class="catalog-input product-maria-share ${editState?.fieldErrors?.mariaShareValue ? "input-error" : ""}" type="number" step="0.01" value="${escapeHtml(
+              draft.mariaShareValue ?? "",
+            )}" />
+          </td>
+          <td data-label="Gaston">
+            <label class="inline-label">${escapeHtml(labels.gaston)}</label>
+            <input class="catalog-input product-gaston-share ${editState?.fieldErrors?.gastonShareValue ? "input-error" : ""}" type="number" step="0.01" value="${escapeHtml(
+              draft.gastonShareValue ?? "",
+            )}" />
+          </td>
+          <td data-label="Alias">
+            <label class="inline-label">Alias</label>
+            <div class="muted">${formatNumber(aliasCountByProduct.get(product.id) || 0)}</div>
+          </td>
           <td data-label="Estado">
-            <span class="tag ${product.isActive === false ? "warning" : "success"}">
-              ${product.isActive === false ? "Inactivo" : "Activo"}
-            </span>
+            <label class="inline-label">Activo</label>
+            <select class="catalog-input product-is-active">
+              <option value="true" ${draft.isActive !== false ? "selected" : ""}>Activo</option>
+              <option value="false" ${draft.isActive === false ? "selected" : ""}>Inactivo</option>
+            </select>
+          </td>
+          <td data-label="Acciones">
+            <div class="inline-form catalog-actions">
+              <div class="inline-actions">
+                <button class="tiny-button" type="button" data-action="save-product-edit" data-product-id="${escapeHtml(
+                  product.id,
+                )}" ${editState?.isSaving ? "disabled" : ""}>
+                  ${editState?.isSaving ? "Guardando..." : "Guardar cambios"}
+                </button>
+                <button class="tiny-button" type="button" data-action="cancel-product-edit" data-product-id="${escapeHtml(
+                  product.id,
+                )}" ${editState?.isSaving ? "disabled" : ""}>
+                  Cancelar
+                </button>
+              </div>
+              ${
+                warnings.length
+                  ? `<div class="row-status warning">${escapeHtml(warnings.join(" "))}</div>`
+                  : ""
+              }
+              ${
+                rowMessage
+                  ? `<div class="row-status ${escapeHtml(editState?.messageType || "info")}">${escapeHtml(
+                      rowMessage,
+                    )}</div>`
+                  : ""
+              }
+            </div>
           </td>
         </tr>
-      `,
-    )
+      `;
+    })
     .join("");
 
   return `
@@ -364,6 +521,7 @@ export function renderProductsCatalog(products, aliases) {
             <th>Gaston</th>
             <th>Alias</th>
             <th>Estado</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>${body}</tbody>

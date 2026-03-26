@@ -24,7 +24,7 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
-const APP_VERSION = "2026-03-26c";
+const APP_VERSION = "2026-03-26d";
 const FIRESTORE_STEP_TIMEOUT_MS = 15000;
 
 const state = {
@@ -39,6 +39,7 @@ const state = {
   copiedConfig: null,
   productCreationStatus: {},
   unmappedFormDrafts: {},
+  productEditState: {},
 };
 
 const elements = {
@@ -166,6 +167,7 @@ function renderAll() {
   elements.productsCatalogContainer.innerHTML = renderProductsCatalog(
     state.products,
     state.aliases,
+    state.productEditState,
   );
   elements.salesDetailContainer.innerHTML = renderSalesDetails(state.currentClosure?.sales);
   elements.closureHistoryContainer.innerHTML = renderClosureHistory(state.closures);
@@ -363,6 +365,226 @@ function upsertById(list, item) {
   return nextList;
 }
 
+function setProductEditState(productId, patch) {
+  if (!productId) {
+    return;
+  }
+
+  if (!patch) {
+    const nextState = { ...state.productEditState };
+    delete nextState[productId];
+    state.productEditState = nextState;
+    return;
+  }
+
+  state.productEditState = {
+    ...state.productEditState,
+    [productId]: {
+      ...(state.productEditState[productId] || {}),
+      ...patch,
+    },
+  };
+}
+
+function buildProductEditDraft(product) {
+  return {
+    baseName: product.baseName || "",
+    provider: product.provider || "",
+    realUnitCost: product.realUnitCost ?? "",
+    allocationType: product.allocationType || "profit_percentage",
+    mariaShareValue: product.mariaShareValue ?? "",
+    gastonShareValue: product.gastonShareValue ?? "",
+    isActive: product.isActive !== false,
+  };
+}
+
+function startProductEdit(productId) {
+  const product = state.products.find((entry) => entry.id === productId);
+  if (!product) {
+    setMessage("No encontre el producto para editar.", "error");
+    return;
+  }
+
+  setProductEditState(productId, {
+    isEditing: true,
+    isSaving: false,
+    message: "",
+    messageType: "info",
+    fieldErrors: {},
+    draft: buildProductEditDraft(product),
+  });
+  renderAll();
+}
+
+function cancelProductEdit(productId) {
+  setProductEditState(productId, null);
+  renderAll();
+}
+
+function persistProductEditDraftFromRow(row) {
+  const productId = row.dataset.productId;
+  if (!productId) {
+    return;
+  }
+
+  setProductEditState(productId, {
+    draft: {
+      baseName: row.querySelector(".product-base-name")?.value?.trim() || "",
+      provider: row.querySelector(".product-provider")?.value?.trim() || "",
+      realUnitCost: row.querySelector(".product-cost")?.value?.trim() || "",
+      allocationType: row.querySelector(".product-allocation-type")?.value || "profit_percentage",
+      mariaShareValue: row.querySelector(".product-maria-share")?.value?.trim() || "",
+      gastonShareValue: row.querySelector(".product-gaston-share")?.value?.trim() || "",
+      isActive: row.querySelector(".product-is-active")?.value !== "false",
+    },
+  });
+}
+
+function validateProductEditDraft(productId) {
+  const editState = state.productEditState[productId];
+  const draft = editState?.draft;
+  const fieldErrors = {};
+  const errors = [];
+  const normalizedDraft = {
+    baseName: String(draft?.baseName || "").trim(),
+    provider: String(draft?.provider || "").trim(),
+    realUnitCost: parseMoney(draft?.realUnitCost),
+    allocationType: draft?.allocationType || "profit_percentage",
+    mariaShareValue: parseMoney(draft?.mariaShareValue),
+    gastonShareValue: parseMoney(draft?.gastonShareValue),
+    isActive: draft?.isActive !== false,
+  };
+
+  if (!normalizedDraft.baseName) {
+    fieldErrors.baseName = true;
+    errors.push("Falta el nombre base.");
+  }
+
+  if (!normalizedDraft.provider) {
+    fieldErrors.provider = true;
+    errors.push("Falta el proveedor.");
+  }
+
+  if (!Number.isFinite(normalizedDraft.realUnitCost) || normalizedDraft.realUnitCost <= 0) {
+    fieldErrors.realUnitCost = true;
+    errors.push("El costo real unitario debe ser mayor a cero.");
+  }
+
+  if (!["profit_percentage", "sale_percentage", "fixed_amount"].includes(normalizedDraft.allocationType)) {
+    fieldErrors.allocationType = true;
+    errors.push("El tipo de reparto no es valido.");
+  }
+
+  if (!Number.isFinite(normalizedDraft.mariaShareValue) || normalizedDraft.mariaShareValue < 0) {
+    fieldErrors.mariaShareValue = true;
+    errors.push("El valor de Maria no es valido.");
+  }
+
+  if (!Number.isFinite(normalizedDraft.gastonShareValue) || normalizedDraft.gastonShareValue < 0) {
+    fieldErrors.gastonShareValue = true;
+    errors.push("El valor de Gaston no es valido.");
+  }
+
+  console.info("[product-edit] Resultado de validacion por campo", {
+    productId,
+    normalizedDraft,
+    fieldErrors,
+    errors,
+  });
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    fieldErrors,
+    normalizedDraft,
+  };
+}
+
+async function saveProductEdit(productId) {
+  const product = state.products.find((entry) => entry.id === productId);
+  const editState = state.productEditState[productId];
+  if (!product || !editState?.draft) {
+    setMessage("No encontre los datos del producto para actualizar.", "error");
+    return;
+  }
+
+  console.info("CLICK editar producto");
+  console.info("[product-edit] Estado actual del formulario", {
+    productId,
+    draft: editState.draft,
+  });
+
+  const { isValid, errors, fieldErrors, normalizedDraft } = validateProductEditDraft(productId);
+  if (!isValid) {
+    setProductEditState(productId, {
+      fieldErrors,
+      message: errors.join(" "),
+      messageType: "error",
+      isSaving: false,
+    });
+    renderAll();
+    setMessage(errors.join(" "), "error");
+    return;
+  }
+
+  const payload = {
+    id: product.id,
+    baseName: normalizedDraft.baseName,
+    provider: normalizedDraft.provider,
+    realUnitCost: normalizedDraft.realUnitCost,
+    allocationType: normalizedDraft.allocationType,
+    mariaShareValue: normalizedDraft.mariaShareValue,
+    gastonShareValue: normalizedDraft.gastonShareValue,
+    isActive: normalizedDraft.isActive,
+  };
+
+  console.info("[product-edit] Datos a guardar", {
+    payload,
+    targetCollection: "products",
+  });
+
+  setProductEditState(productId, {
+    fieldErrors: {},
+    message: "Guardando...",
+    messageType: "info",
+    isSaving: true,
+  });
+  renderAll();
+
+  try {
+    const savedProduct = await withTimeout(
+      saveProduct(payload),
+      FIRESTORE_STEP_TIMEOUT_MS,
+      "La actualizacion del producto en products",
+    );
+
+    console.info("[product-edit] Producto actualizado en Firestore", savedProduct);
+
+    state.products = upsertById(state.products, { ...payload, ...savedProduct });
+    renderAll();
+
+    await withTimeout(
+      refreshMasterData(),
+      FIRESTORE_STEP_TIMEOUT_MS,
+      "La recarga de products despues de editar",
+    );
+    recomputeClosure();
+    setProductEditState(productId, null);
+    renderAll();
+    setMessage("Producto actualizado correctamente", "info");
+  } catch (error) {
+    console.error("[product-edit] Error exacto al actualizar", error);
+    setProductEditState(productId, {
+      fieldErrors,
+      message: `Error al actualizar producto: ${formatErrorMessage(error)}`,
+      messageType: "error",
+      isSaving: false,
+    });
+    renderAll();
+    setMessage(`Error al actualizar producto: ${formatErrorMessage(error)}`, "error");
+  }
+}
+
 function validateProductDraft(row) {
   clearRowValidation(row);
 
@@ -530,6 +752,7 @@ async function processCsvText(text, fileName) {
   state.sourceFileName = fileName || "archivo.csv";
   state.productCreationStatus = {};
   state.unmappedFormDrafts = {};
+  state.productEditState = {};
   recomputeClosure();
 }
 
@@ -880,6 +1103,57 @@ function handleUnmappedFieldEdit(event) {
   persistDraftFromRow(row);
 }
 
+function handleProductsCatalogClick(event) {
+  const button = event.target.closest("[data-action][data-product-id]");
+  if (!button) {
+    return;
+  }
+
+  const productId = button.dataset.productId;
+  const action = button.dataset.action;
+
+  if (action === "edit-product") {
+    startProductEdit(productId);
+    return;
+  }
+
+  if (action === "cancel-product-edit") {
+    cancelProductEdit(productId);
+    return;
+  }
+
+  if (action === "save-product-edit") {
+    saveProductEdit(productId).catch((error) => {
+      console.error("[product-edit] Error inesperado", error);
+      setMessage(`Error al actualizar producto: ${formatErrorMessage(error)}`, "error");
+    });
+  }
+}
+
+function handleProductsCatalogFieldEdit(event) {
+  const target = event.target.closest(
+    ".product-base-name, .product-provider, .product-cost, .product-allocation-type, .product-maria-share, .product-gaston-share, .product-is-active",
+  );
+  if (!target) {
+    return;
+  }
+
+  const row = target.closest("[data-product-row]");
+  if (!row) {
+    return;
+  }
+
+  target.classList.remove("input-error");
+  persistProductEditDraftFromRow(row);
+
+  if (
+    target.matches(".product-allocation-type") ||
+    target.matches(".product-is-active")
+  ) {
+    renderAll();
+  }
+}
+
 function handleAdjustmentsSubmit(event) {
   event.preventDefault();
 
@@ -972,6 +1246,9 @@ async function init() {
   elements.unmappedProductsContainer.addEventListener("click", handleUnmappedActions);
   elements.unmappedProductsContainer.addEventListener("input", handleUnmappedFieldEdit);
   elements.unmappedProductsContainer.addEventListener("change", handleUnmappedFieldEdit);
+  elements.productsCatalogContainer.addEventListener("click", handleProductsCatalogClick);
+  elements.productsCatalogContainer.addEventListener("input", handleProductsCatalogFieldEdit);
+  elements.productsCatalogContainer.addEventListener("change", handleProductsCatalogFieldEdit);
   elements.adjustmentsListContainer.addEventListener("click", handleAdjustmentListClick);
   elements.closureHistoryContainer.addEventListener("click", handleHistoryClick);
   elements.closureDateInput.addEventListener("change", () => {

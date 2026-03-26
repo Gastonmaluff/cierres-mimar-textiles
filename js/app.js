@@ -24,6 +24,8 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
+const APP_VERSION = "2026-03-26b";
+
 const state = {
   firebaseReady: false,
   products: [],
@@ -34,6 +36,7 @@ const state = {
   currentClosure: null,
   sourceFileName: "",
   copiedConfig: null,
+  productCreationStatus: {},
 };
 
 const elements = {
@@ -72,6 +75,15 @@ function setMessage(text, type = "info") {
 function setFirebaseStatus(text, type = "") {
   elements.firebaseStatus.textContent = text;
   elements.firebaseStatus.className = `status-pill${type ? ` ${type}` : ""}`;
+}
+
+function formatErrorMessage(error) {
+  if (!error) {
+    return "Error desconocido.";
+  }
+
+  const code = error.code ? `[${error.code}] ` : "";
+  return `${code}${error.message || String(error)}`;
 }
 
 function formatInlineCurrency(value) {
@@ -118,6 +130,7 @@ function renderAll() {
     state.currentClosure?.unmappedProducts,
     state.products,
     state.copiedConfig,
+    state.productCreationStatus,
   );
   elements.productsCatalogContainer.innerHTML = renderProductsCatalog(
     state.products,
@@ -206,6 +219,24 @@ async function refreshMasterData() {
     aliases: state.aliases.length,
     closures: state.closures.length,
   });
+}
+
+function setRowStatus(normalizedKey, status) {
+  if (!normalizedKey) {
+    return;
+  }
+
+  if (!status) {
+    const nextStatus = { ...state.productCreationStatus };
+    delete nextStatus[normalizedKey];
+    state.productCreationStatus = nextStatus;
+    return;
+  }
+
+  state.productCreationStatus = {
+    ...state.productCreationStatus,
+    [normalizedKey]: status,
+  };
 }
 
 function readConfigFromRow(row) {
@@ -327,6 +358,33 @@ function validateProductDraft(row) {
     markInvalidInput(row, ".create-gaston-share");
   }
 
+  console.info("[create-product] Resultado de validacion por campo", {
+    baseName: { value: baseNameRaw, isValid: Boolean(baseNameRaw) },
+    provider: { value: providerRaw, isValid: Boolean(providerRaw) },
+    realUnitCost: {
+      raw: costRaw,
+      parsed: draft.realUnitCost,
+      isValid: Boolean(costRaw) && Number.isFinite(draft.realUnitCost) && draft.realUnitCost > 0,
+    },
+    allocationType: {
+      value: allocationType,
+      isValid: ["profit_percentage", "sale_percentage", "fixed_amount"].includes(allocationType),
+    },
+    mariaShareValue: {
+      raw: mariaRaw,
+      parsed: draft.mariaShareValue,
+      isValid:
+        mariaRaw !== "" && Number.isFinite(draft.mariaShareValue) && draft.mariaShareValue >= 0,
+    },
+    gastonShareValue: {
+      raw: gastonRaw,
+      parsed: draft.gastonShareValue,
+      isValid:
+        gastonRaw !== "" && Number.isFinite(draft.gastonShareValue) && draft.gastonShareValue >= 0,
+    },
+    errors,
+  });
+
   return {
     isValid: errors.length === 0,
     errors,
@@ -397,6 +455,7 @@ async function processCsvText(text, fileName) {
   state.rawSales = parsedSales;
   state.manualAdjustments = [];
   state.sourceFileName = fileName || "archivo.csv";
+  state.productCreationStatus = {};
   recomputeClosure();
 }
 
@@ -492,15 +551,28 @@ async function createProductFromUnmapped(row) {
   const group = state.currentClosure?.unmappedProducts.find(
     (item) => item.normalizedKey === normalizedKey,
   );
-  const actionButton = row.querySelector('[data-action="create-product"]');
 
   console.info("[create-product] Click en crear producto", {
     normalizedKey,
     group,
   });
+  console.info("[create-product] Estado actual del formulario", {
+    baseName: row.querySelector(".create-base-name")?.value?.trim() || "",
+    provider: row.querySelector(".create-provider")?.value?.trim() || "",
+    cost: row.querySelector(".create-cost")?.value?.trim() || "",
+    allocationType: row.querySelector(".create-allocation-type")?.value || "",
+    mariaShareValue: row.querySelector(".create-maria-share")?.value?.trim() || "",
+    gastonShareValue: row.querySelector(".create-gaston-share")?.value?.trim() || "",
+  });
 
   if (!group) {
     console.error("[create-product] No se encontro el grupo sin mapear para la fila actual.");
+    setRowStatus(normalizedKey, {
+      type: "error",
+      message: "No se encontro la fila para crear el producto.",
+      isSaving: false,
+    });
+    renderAll();
     setMessage("No encontre el producto sin mapear seleccionado.", "error");
     return;
   }
@@ -508,6 +580,12 @@ async function createProductFromUnmapped(row) {
   const { isValid, errors, draft } = validateProductDraft(row);
   if (!isValid) {
     console.error("[create-product] Validacion fallida", { errors, draft });
+    setRowStatus(normalizedKey, {
+      type: "error",
+      message: errors.join(" "),
+      isSaving: false,
+    });
+    renderAll();
     setMessage(errors.join(" "), "error");
     return;
   }
@@ -540,9 +618,18 @@ async function createProductFromUnmapped(row) {
   console.info("[create-product] Datos a guardar", {
     productPayload,
     aliasPayloads,
+    targetCollections: {
+      product: "products",
+      aliases: "product_aliases",
+    },
   });
 
-  actionButton?.setAttribute("disabled", "disabled");
+  setRowStatus(normalizedKey, {
+    type: "info",
+    message: "Guardando...",
+    isSaving: true,
+  });
+  renderAll();
 
   try {
     const savedProduct = await saveProduct(productPayload);
@@ -571,19 +658,30 @@ async function createProductFromUnmapped(row) {
       recomputeClosure();
     } catch (refreshError) {
       console.error("[create-product] El producto se guardo, pero fallo la recarga desde Firestore", refreshError);
+      setRowStatus(normalizedKey, {
+        type: "warning",
+        message: `Guardado parcial. No pude recargar Firestore: ${formatErrorMessage(refreshError)}`,
+        isSaving: false,
+      });
+      renderAll();
       setMessage(
-        `Producto creado correctamente, pero no pude recargar desde Firestore: ${refreshError.message}`,
+        `Producto creado correctamente, pero no pude recargar desde Firestore: ${formatErrorMessage(refreshError)}`,
         "warning",
       );
       return;
     }
 
+    setRowStatus(normalizedKey, null);
     setMessage("Producto creado correctamente.", "info");
   } catch (error) {
     console.error("[create-product] Error exacto al guardar", error);
-    setMessage(`Error al crear producto: ${error.message}`, "error");
-  } finally {
-    actionButton?.removeAttribute("disabled");
+    setRowStatus(normalizedKey, {
+      type: "error",
+      message: `Error al crear producto: ${formatErrorMessage(error)}`,
+      isSaving: false,
+    });
+    renderAll();
+    setMessage(`Error al crear producto: ${formatErrorMessage(error)}`, "error");
   }
 }
 
@@ -744,6 +842,7 @@ function handleHistoryClick(event) {
 }
 
 async function init() {
+  console.info(`[app] Version cargada: ${APP_VERSION}`);
   elements.closureDateInput.value = new Date().toISOString().slice(0, 10);
 
   elements.processButton.addEventListener("click", () => {

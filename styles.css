@@ -447,6 +447,36 @@ td strong,
   gap: 8px;
 }
 
+.row-status {
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+
+.row-status.info {
+  background: rgba(15, 118, 110, 0.08);
+  border-color: rgba(15, 118, 110, 0.16);
+  color: var(--brand);
+}
+
+.row-status.warning {
+  background: rgba(202, 138, 4, 0.12);
+  border-color: rgba(202, 138, 4, 0.16);
+  color: #9a6700;
+}
+
+.row-status.error {
+  background: rgba(180, 35, 24, 0.08);
+  border-color: rgba(180, 35, 24, 0.16);
+  color: var(--danger);
+}
+
+.row-status.hidden {
+  display: none;
+}
+
 .tiny-button {
   min-height: 38px;
   padding: 0 12px;

@@ -37,6 +37,11 @@ function sanitizeForFirestore(value) {
 
 export async function loadMasterData() {
   const db = getDb();
+  console.info("[firestore] Leyendo colecciones", {
+    products: firebaseCollections.products,
+    productAliases: firebaseCollections.productAliases,
+    closures: firebaseCollections.closures,
+  });
 
   const [productsSnap, aliasesSnap, closuresSnap] = await Promise.all([
     getDocs(query(collection(db, firebaseCollections.products), orderBy("baseName"))),
@@ -57,6 +62,12 @@ export async function saveProduct(product) {
     ? doc(db, firebaseCollections.products, product.id)
     : doc(collection(db, firebaseCollections.products));
 
+  console.info("[firestore] Guardando producto", {
+    collection: firebaseCollections.products,
+    docId: productRef.id,
+    payload: product,
+  });
+
   await setDoc(
     productRef,
     sanitizeForFirestore({
@@ -76,6 +87,12 @@ export async function saveAlias({ alias, normalizedAlias, productId }) {
   const cleanNormalizedAlias = normalizedAlias || normalizeKey(alias);
   const aliasId = slugify(`${cleanNormalizedAlias}-${productId}`);
   const aliasRef = doc(db, firebaseCollections.productAliases, aliasId);
+
+  console.info("[firestore] Guardando alias", {
+    collection: firebaseCollections.productAliases,
+    docId: aliasId,
+    payload: { alias, normalizedAlias: cleanNormalizedAlias, productId },
+  });
 
   await setDoc(
     aliasRef,

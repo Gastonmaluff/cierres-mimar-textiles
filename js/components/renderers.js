@@ -165,7 +165,7 @@ export function renderPartnerSummary(rows) {
   `;
 }
 
-export function renderUnmappedProducts(groups, products, copiedConfig) {
+export function renderUnmappedProducts(groups, products, copiedConfig, productCreationStatus = {}) {
   if (!groups?.length) {
     return '<span class="tag success">Todo el cierre quedo mapeado automaticamente.</span>';
   }
@@ -176,6 +176,7 @@ export function renderUnmappedProducts(groups, products, copiedConfig) {
     .map((group, index) => {
       const encodedKey = encodeURIComponent(group.normalizedKey);
       const suggestion = similarSuggestionMap.get(group.normalizedKey);
+      const rowStatus = productCreationStatus[group.normalizedKey] || null;
 
       return `
         <tr data-unmapped-row data-unmapped-key="${encodedKey}" data-row-index="${index}">
@@ -234,8 +235,10 @@ export function renderUnmappedProducts(groups, products, copiedConfig) {
                       </button>`
                     : ""
                 }
-                <button class="tiny-button" type="button" data-action="create-product">
-                  Crear producto
+                <button class="tiny-button" type="button" data-action="create-product" ${
+                  rowStatus?.isSaving ? "disabled" : ""
+                }>
+                  ${rowStatus?.isSaving ? "Guardando..." : "Crear producto"}
                 </button>
               </div>
               <div class="inline-meta">
@@ -254,6 +257,13 @@ export function renderUnmappedProducts(groups, products, copiedConfig) {
                     : ""
                 }
               </div>
+              ${
+                rowStatus?.message
+                  ? `<div class="row-status ${escapeHtml(rowStatus.type || "info")}" data-row-status>${escapeHtml(
+                      rowStatus.message,
+                    )}</div>`
+                  : `<div class="row-status hidden" data-row-status></div>`
+              }
             </div>
           </td>
         </tr>

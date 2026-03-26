@@ -428,6 +428,20 @@ td strong,
   gap: 8px;
 }
 
+.compact-actions {
+  align-items: center;
+}
+
+.compact-form {
+  gap: 12px;
+}
+
+.inline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .tiny-button {
   min-height: 38px;
   padding: 0 12px;
@@ -436,6 +450,11 @@ td strong,
   font-weight: 700;
   cursor: pointer;
   background: rgba(20, 33, 31, 0.08);
+}
+
+.tiny-button.is-available {
+  background: rgba(15, 118, 110, 0.14);
+  color: var(--brand);
 }
 
 .history-list {

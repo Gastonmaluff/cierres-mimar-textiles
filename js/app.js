@@ -1,5 +1,21 @@
-import { renderAdjustments, renderClosureHistory, renderDashboard, renderExportPreview, renderPartnerSummary, renderProductsCatalog, renderProviderSummary, renderSalesDetails, renderUnmappedProducts } from "./components/renderers.js";
-import { loadMasterData, saveAlias, saveClosure, saveProduct, seedSampleMasterData } from "./services/data-service.js";
+import {
+  renderAdjustments,
+  renderClosureHistory,
+  renderDashboard,
+  renderExportPreview,
+  renderPartnerSummary,
+  renderProductsCatalog,
+  renderProviderSummary,
+  renderSalesDetails,
+  renderUnmappedProducts,
+} from "./components/renderers.js";
+import {
+  loadMasterData,
+  saveAlias,
+  saveClosure,
+  saveProduct,
+  seedSampleMasterData,
+} from "./services/data-service.js";
 import { buildExportPayload } from "./services/export-service.js";
 import { initializeFirebase } from "./services/firebase-service.js";
 import { sampleAliases, sampleProducts } from "./sample-data.js";
@@ -17,6 +33,7 @@ const state = {
   manualAdjustments: [],
   currentClosure: null,
   sourceFileName: "",
+  copiedConfig: null,
 };
 
 const elements = {
@@ -57,6 +74,38 @@ function setFirebaseStatus(text, type = "") {
   elements.firebaseStatus.className = `status-pill${type ? ` ${type}` : ""}`;
 }
 
+function formatInlineCurrency(value) {
+  return new Intl.NumberFormat("es-PY", {
+    style: "currency",
+    currency: "PYG",
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0);
+}
+
+function buildConfigStatusLabel() {
+  if (!state.copiedConfig) {
+    return "Sin config copiada";
+  }
+
+  return `Config copiada: ${state.copiedConfig.provider || "sin proveedor"} · ${formatInlineCurrency(
+    state.copiedConfig.cost || 0,
+  )}`;
+}
+
+function syncCopiedConfigUi() {
+  const pasteButtons = elements.unmappedProductsContainer.querySelectorAll("[data-paste-button]");
+  pasteButtons.forEach((button) => {
+    button.disabled = !state.copiedConfig;
+    button.classList.toggle("is-available", Boolean(state.copiedConfig));
+  });
+
+  const labels = elements.unmappedProductsContainer.querySelectorAll("[data-config-status]");
+  labels.forEach((label) => {
+    label.textContent = buildConfigStatusLabel();
+    label.className = `tag${state.copiedConfig ? " success" : ""}`;
+  });
+}
+
 function renderAll() {
   elements.dashboardSection.innerHTML = renderDashboard(state.currentClosure?.metrics);
   elements.providerSummaryContainer.innerHTML = renderProviderSummary(
@@ -68,6 +117,7 @@ function renderAll() {
   elements.unmappedProductsContainer.innerHTML = renderUnmappedProducts(
     state.currentClosure?.unmappedProducts,
     state.products,
+    state.copiedConfig,
   );
   elements.productsCatalogContainer.innerHTML = renderProductsCatalog(
     state.products,
@@ -91,6 +141,7 @@ function renderAll() {
   );
   updateAdjustmentTargets();
   elements.saveClosureButton.disabled = !(state.firebaseReady && state.currentClosure);
+  syncCopiedConfigUi();
 }
 
 function updateAdjustmentTargets() {
@@ -100,12 +151,9 @@ function updateAdjustmentTargets() {
 
   elements.adjustmentTargetInput.innerHTML = availableTargets.length
     ? availableTargets
-        .map(
-          (target) =>
-            `<option value="${target.id}">${target.label.replace(/</g, "&lt;")}</option>`,
-        )
+        .map((target) => `<option value="${target.id}">${target.label.replace(/</g, "&lt;")}</option>`)
         .join("")
-    : '<option value="">Procesá un cierre primero</option>';
+    : '<option value="">Procesa un cierre primero</option>';
 }
 
 function recomputeClosure() {
@@ -136,7 +184,7 @@ function recomputeClosure() {
       "warning",
     );
   } else {
-    setMessage("CSV procesado correctamente y todo quedó mapeado.", "info");
+    setMessage("CSV procesado correctamente y todo quedo mapeado.", "info");
   }
 }
 
@@ -151,12 +199,110 @@ async function refreshMasterData() {
   state.closures = data.closures;
 }
 
+function readConfigFromRow(row) {
+  return {
+    provider: row.querySelector(".create-provider")?.value?.trim() || "",
+    cost: parseMoney(row.querySelector(".create-cost")?.value),
+    allocationType: row.querySelector(".create-allocation-type")?.value || "profit_percentage",
+    mariaShareValue: parseMoney(row.querySelector(".create-maria-share")?.value),
+    gastonShareValue: parseMoney(row.querySelector(".create-gaston-share")?.value),
+  };
+}
+
+function rowHasReusableConfig(config) {
+  return Boolean(
+    config &&
+      (config.provider ||
+        config.cost ||
+        config.mariaShareValue ||
+        config.gastonShareValue ||
+        config.allocationType),
+  );
+}
+
+function applyConfigToRow(row, config) {
+  if (!row || !config) {
+    return false;
+  }
+
+  const providerInput = row.querySelector(".create-provider");
+  const costInput = row.querySelector(".create-cost");
+  const allocationInput = row.querySelector(".create-allocation-type");
+  const mariaInput = row.querySelector(".create-maria-share");
+  const gastonInput = row.querySelector(".create-gaston-share");
+
+  if (!providerInput || !costInput || !allocationInput || !mariaInput || !gastonInput) {
+    return false;
+  }
+
+  providerInput.value = config.provider || "";
+  costInput.value = config.cost || config.cost === 0 ? String(config.cost) : "";
+  allocationInput.value = config.allocationType || "profit_percentage";
+  mariaInput.value =
+    config.mariaShareValue || config.mariaShareValue === 0 ? String(config.mariaShareValue) : "";
+  gastonInput.value =
+    config.gastonShareValue || config.gastonShareValue === 0 ? String(config.gastonShareValue) : "";
+
+  return true;
+}
+
+function getRowPrimaryLabel(row) {
+  return row.querySelector("td strong")?.textContent?.trim() || "esta fila";
+}
+
+function copyRowConfiguration(row, sourceLabel) {
+  const config = readConfigFromRow(row);
+  if (!rowHasReusableConfig(config)) {
+    setMessage("Completa proveedor, costo o reparto antes de copiar la configuracion.", "warning");
+    return;
+  }
+
+  state.copiedConfig = {
+    ...config,
+    sourceLabel,
+  };
+  syncCopiedConfigUi();
+  setMessage(`Configuracion copiada desde ${sourceLabel}.`, "info");
+}
+
+function pasteConfigurationIntoRow(row, config, successMessage) {
+  if (!config) {
+    setMessage("No hay una configuracion copiada disponible.", "warning");
+    return;
+  }
+
+  const applied = applyConfigToRow(row, config);
+  if (!applied) {
+    setMessage("No pude pegar la configuracion en esa fila.", "error");
+    return;
+  }
+
+  setMessage(successMessage, "info");
+}
+
+function getPreviousRow(row) {
+  const currentIndex = Number(row.dataset.rowIndex);
+  if (!Number.isFinite(currentIndex) || currentIndex <= 0) {
+    return null;
+  }
+
+  return elements.unmappedProductsContainer.querySelector(
+    `[data-unmapped-row][data-row-index="${currentIndex - 1}"]`,
+  );
+}
+
+function getRowByNormalizedKey(normalizedKey) {
+  return elements.unmappedProductsContainer.querySelector(
+    `[data-unmapped-row][data-unmapped-key="${encodeURIComponent(normalizedKey)}"]`,
+  );
+}
+
 async function processCsvText(text, fileName) {
   const records = parseCsv(text);
   const parsedSales = parseKyteSales(records);
 
   if (!parsedSales.length) {
-    setMessage("No pude detectar ventas válidas en ese CSV.", "error");
+    setMessage("No pude detectar ventas validas en ese CSV.", "error");
     return;
   }
 
@@ -169,7 +315,7 @@ async function processCsvText(text, fileName) {
 async function handleProcessFile() {
   const file = elements.csvInput.files?.[0];
   if (!file) {
-    setMessage("Elegí un archivo CSV antes de procesarlo.", "warning");
+    setMessage("Elegi un archivo CSV antes de procesarlo.", "warning");
     return;
   }
 
@@ -192,7 +338,7 @@ async function handleLoadSample() {
 
 async function handleSeedData() {
   if (!state.firebaseReady) {
-    setMessage("Firebase no está disponible, así que no puedo cargar datos de ejemplo.", "error");
+    setMessage("Firebase no esta disponible, asi que no puedo cargar datos de ejemplo.", "error");
     return;
   }
 
@@ -227,7 +373,7 @@ async function linkUnmappedAlias(row) {
   const productId = row.querySelector(".map-existing-product")?.value;
 
   if (!group || !productId) {
-    setMessage("Elegí un producto existente para guardar el alias.", "warning");
+    setMessage("Elegi un producto existente para guardar el alias.", "warning");
     return;
   }
 
@@ -260,7 +406,7 @@ async function createProductFromUnmapped(row) {
   );
 
   if (!group) {
-    setMessage("No encontré el producto sin mapear seleccionado.", "error");
+    setMessage("No encontre el producto sin mapear seleccionado.", "error");
     return;
   }
 
@@ -272,7 +418,7 @@ async function createProductFromUnmapped(row) {
   const gastonShareValue = parseMoney(row.querySelector(".create-gaston-share")?.value);
 
   if (!baseName || !provider || !cost) {
-    setMessage("Completá nombre base, proveedor y costo real antes de crear el producto.", "warning");
+    setMessage("Completa nombre base, proveedor y costo real antes de crear el producto.", "warning");
     return;
   }
 
@@ -306,7 +452,7 @@ async function createProductFromUnmapped(row) {
 
   await refreshMasterData();
   recomputeClosure();
-  setMessage("Producto creado y vinculado para próximos cierres.", "info");
+  setMessage("Producto creado y vinculado para proximos cierres.", "info");
 }
 
 function handleUnmappedActions(event) {
@@ -321,8 +467,63 @@ function handleUnmappedActions(event) {
   }
 
   const action = button.dataset.action;
+
+  if (action === "copy-config") {
+    copyRowConfiguration(row, getRowPrimaryLabel(row));
+    return;
+  }
+
+  if (action === "paste-config") {
+    pasteConfigurationIntoRow(row, state.copiedConfig, "Configuracion pegada en la fila actual.");
+    return;
+  }
+
+  if (action === "use-previous") {
+    const previousRow = getPreviousRow(row);
+    if (!previousRow) {
+      setMessage("No hay una fila anterior disponible.", "warning");
+      return;
+    }
+
+    const previousConfig = readConfigFromRow(previousRow);
+    if (!rowHasReusableConfig(previousConfig)) {
+      setMessage("La fila anterior todavia no tiene una configuracion reutilizable.", "warning");
+      return;
+    }
+
+    pasteConfigurationIntoRow(
+      row,
+      previousConfig,
+      "Configuracion tomada desde la fila anterior.",
+    );
+    return;
+  }
+
+  if (action === "apply-similar") {
+    const similarKey = decodeURIComponent(button.dataset.similarKey || "");
+    const sourceRow = getRowByNormalizedKey(similarKey);
+
+    if (!sourceRow) {
+      setMessage("No encontre la fila sugerida para copiar esa configuracion.", "warning");
+      return;
+    }
+
+    const sourceConfig = readConfigFromRow(sourceRow);
+    if (!rowHasReusableConfig(sourceConfig)) {
+      setMessage("La fila sugerida todavia no tiene datos completos para reutilizar.", "warning");
+      return;
+    }
+
+    pasteConfigurationIntoRow(
+      row,
+      sourceConfig,
+      "Configuracion aplicada desde un producto similar.",
+    );
+    return;
+  }
+
   if (!state.firebaseReady) {
-    setMessage("Firebase no está listo. Igual podés procesar el CSV, pero no guardar cambios.", "warning");
+    setMessage("Firebase no esta listo. Igual podes procesar el CSV, pero no guardar cambios.", "warning");
     return;
   }
 
@@ -343,13 +544,13 @@ function handleAdjustmentsSubmit(event) {
   event.preventDefault();
 
   if (!state.currentClosure) {
-    setMessage("Procesá un cierre antes de agregar ajustes.", "warning");
+    setMessage("Procesa un cierre antes de agregar ajustes.", "warning");
     return;
   }
 
   const targetId = elements.adjustmentTargetInput.value;
   if (!targetId) {
-    setMessage("Elegí una venta o un ítem para aplicar el ajuste.", "warning");
+    setMessage("Elegi una venta o un item para aplicar el ajuste.", "warning");
     return;
   }
 
@@ -396,7 +597,7 @@ function handleHistoryClick(event) {
 
   const closure = state.closures.find((item) => item.id === button.dataset.closureId);
   if (!closure) {
-    setMessage("No encontré el cierre seleccionado.", "error");
+    setMessage("No encontre el cierre seleccionado.", "error");
     return;
   }
 
@@ -450,7 +651,7 @@ async function init() {
     state.firebaseReady = false;
     setFirebaseStatus("Firebase no disponible", "warning");
     setMessage(
-      "La app igual puede procesar CSV, pero Firestore no respondió. Revisá reglas y conexión.",
+      "La app igual puede procesar CSV, pero Firestore no respondio. Revisa reglas y conexion.",
       "warning",
     );
   }

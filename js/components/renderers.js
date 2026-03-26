@@ -19,6 +19,48 @@ function createProductOptions(products) {
     .join("");
 }
 
+function tokenizeKey(value) {
+  return String(value || "")
+    .split(" ")
+    .filter((token) => token.length >= 3);
+}
+
+function extractMeasureKey(value) {
+  const match = String(value || "").match(
+    /(\d+(?:[.,]\d+)?\s*x\s*\d+(?:[.,]\d+)?\s*[a-z]*)|(\bqueen\b|\bking\b|\bsoltero\b|\bmatrimonial\b)/i,
+  );
+
+  return match ? match[0].toLowerCase().replace(/\s+/g, " ").trim() : "";
+}
+
+function buildSimilarSuggestionMap(groups) {
+  const suggestionMap = new Map();
+
+  groups.forEach((group, index) => {
+    const currentTokens = tokenizeKey(group.normalizedKey);
+    const currentMeasure = extractMeasureKey(group.primaryLabel || group.normalizedKey);
+
+    for (let candidateIndex = index - 1; candidateIndex >= 0; candidateIndex -= 1) {
+      const candidate = groups[candidateIndex];
+      const candidateTokens = tokenizeKey(candidate.normalizedKey);
+      const candidateMeasure = extractMeasureKey(candidate.primaryLabel || candidate.normalizedKey);
+      const sharedTokens = currentTokens.filter((token) => candidateTokens.includes(token));
+      const hasMeasureMatch = currentMeasure && candidateMeasure && currentMeasure === candidateMeasure;
+
+      if (hasMeasureMatch || sharedTokens.length >= 2) {
+        suggestionMap.set(group.normalizedKey, {
+          key: candidate.normalizedKey,
+          label: candidate.primaryLabel,
+          reason: hasMeasureMatch ? `misma medida: ${currentMeasure}` : "nombre parecido",
+        });
+        break;
+      }
+    }
+  });
+
+  return suggestionMap;
+}
+
 export function renderDashboard(metrics) {
   const safeMetrics = metrics || {
     totalRevenue: 0,
@@ -30,11 +72,11 @@ export function renderDashboard(metrics) {
   };
 
   const cards = [
-    ["Facturación total", formatCurrency(safeMetrics.totalRevenue), "Ingresos reales del cierre"],
+    ["Facturacion total", formatCurrency(safeMetrics.totalRevenue), "Ingresos reales del cierre"],
     ["Costo real total", formatCurrency(safeMetrics.totalCost), "Basado en tu tabla maestra"],
     ["Utilidad real total", formatCurrency(safeMetrics.totalProfit), "Venta menos costo y ajustes"],
-    ["Total Gastón", formatCurrency(safeMetrics.totalGaston), "Según reglas por producto"],
-    ["Total María", formatCurrency(safeMetrics.totalMaria), "Según reglas por producto"],
+    ["Total Gaston", formatCurrency(safeMetrics.totalGaston), "Segun reglas por producto"],
+    ["Total Maria", formatCurrency(safeMetrics.totalMaria), "Segun reglas por producto"],
     ["Total proveedores", formatCurrency(safeMetrics.totalProviders), "Total a pagar a proveedores"],
   ];
 
@@ -53,7 +95,7 @@ export function renderDashboard(metrics) {
 
 export function renderProviderSummary(rows) {
   if (!rows?.length) {
-    return "No hay productos mapeados todavía, así que el resumen por proveedor sigue vacío.";
+    return "No hay productos mapeados todavia, asi que el resumen por proveedor sigue vacio.";
   }
 
   const body = rows
@@ -92,7 +134,7 @@ export function renderProviderSummary(rows) {
 
 export function renderPartnerSummary(rows) {
   if (!rows?.length) {
-    return "Todavía no hay repartos calculados.";
+    return "Todavia no hay repartos calculados.";
   }
 
   const body = rows
@@ -113,7 +155,7 @@ export function renderPartnerSummary(rows) {
         <thead>
           <tr>
             <th>Socio</th>
-            <th>Base de cálculo</th>
+            <th>Base de calculo</th>
             <th>Total</th>
           </tr>
         </thead>
@@ -123,17 +165,20 @@ export function renderPartnerSummary(rows) {
   `;
 }
 
-export function renderUnmappedProducts(groups, products) {
+export function renderUnmappedProducts(groups, products, copiedConfig) {
   if (!groups?.length) {
-    return '<span class="tag success">Todo el cierre quedó mapeado automáticamente.</span>';
+    return '<span class="tag success">Todo el cierre quedo mapeado automaticamente.</span>';
   }
 
   const productOptions = createProductOptions(products);
+  const similarSuggestionMap = buildSimilarSuggestionMap(groups);
   const body = groups
-    .map((group) => {
+    .map((group, index) => {
       const encodedKey = encodeURIComponent(group.normalizedKey);
+      const suggestion = similarSuggestionMap.get(group.normalizedKey);
+
       return `
-        <tr data-unmapped-row data-unmapped-key="${encodedKey}">
+        <tr data-unmapped-row data-unmapped-key="${encodedKey}" data-row-index="${index}">
           <td data-label="Producto detectado">
             <strong>${escapeHtml(group.primaryLabel)}</strong><br />
             <span class="muted">${escapeHtml(group.rawLabels.join(" · "))}</span>
@@ -142,7 +187,7 @@ export function renderUnmappedProducts(groups, products) {
           <td data-label="Cantidad">${formatNumber(group.quantity)}</td>
           <td data-label="Ventas">${formatNumber(group.salesCount)}</td>
           <td data-label="Acciones">
-            <div class="inline-form">
+            <div class="inline-form compact-form">
               <select class="map-existing-product">
                 <option value="">Vincular con producto existente</option>
                 ${productOptions}
@@ -163,13 +208,51 @@ export function renderUnmappedProducts(groups, products) {
                   <option value="sale_percentage">Reparto sobre venta</option>
                   <option value="fixed_amount">Monto fijo por unidad</option>
                 </select>
-                <input class="create-maria-share" type="number" step="0.01" placeholder="Valor María" />
-                <input class="create-gaston-share" type="number" step="0.01" placeholder="Valor Gastón" />
+                <input class="create-maria-share" type="number" step="0.01" placeholder="Valor Maria" />
+                <input class="create-gaston-share" type="number" step="0.01" placeholder="Valor Gaston" />
               </div>
-              <div class="inline-actions">
-                <button class="tiny-button" type="button" data-action="create-product">
-                  Crear producto y vincular
+              <div class="inline-actions compact-actions">
+                <button class="tiny-button" type="button" data-action="copy-config">
+                  Copiar config.
                 </button>
+                <button class="tiny-button ${copiedConfig ? "is-available" : ""}" type="button" data-action="paste-config" data-paste-button ${
+                  copiedConfig ? "" : "disabled"
+                }>
+                  Pegar config.
+                </button>
+                <button class="tiny-button" type="button" data-action="use-previous" ${
+                  index === 0 ? "disabled" : ""
+                }>
+                  Fila anterior
+                </button>
+                ${
+                  suggestion
+                    ? `<button class="tiny-button" type="button" data-action="apply-similar" data-similar-key="${escapeHtml(
+                        encodeURIComponent(suggestion.key),
+                      )}">
+                        Similar
+                      </button>`
+                    : ""
+                }
+                <button class="tiny-button" type="button" data-action="create-product">
+                  Crear producto
+                </button>
+              </div>
+              <div class="inline-meta">
+                ${
+                  copiedConfig
+                    ? `<span class="tag success" data-config-status>Config copiada: ${escapeHtml(
+                        copiedConfig.provider || "sin proveedor",
+                      )} · ${formatCurrency(copiedConfig.cost || 0)}</span>`
+                    : '<span class="tag" data-config-status>Sin config copiada</span>'
+                }
+                ${
+                  suggestion
+                    ? `<span class="tag">Sugerencia: ${escapeHtml(suggestion.label)} · ${escapeHtml(
+                        suggestion.reason,
+                      )}</span>`
+                    : ""
+                }
               </div>
             </div>
           </td>
@@ -198,7 +281,7 @@ export function renderUnmappedProducts(groups, products) {
 
 export function renderProductsCatalog(products, aliases) {
   if (!products?.length) {
-    return "Todavía no hay productos cargados en Firestore.";
+    return "Todavia no hay productos cargados en Firestore.";
   }
 
   const aliasCountByProduct = new Map();
@@ -217,8 +300,8 @@ export function renderProductsCatalog(products, aliases) {
           <td data-label="Proveedor">${escapeHtml(product.provider || "-")}</td>
           <td data-label="Costo">${formatCurrency(product.realUnitCost)}</td>
           <td data-label="Reparto">${escapeHtml(product.allocationType || "-")}</td>
-          <td data-label="María">${formatNumber(product.mariaShareValue)}</td>
-          <td data-label="Gastón">${formatNumber(product.gastonShareValue)}</td>
+          <td data-label="Maria">${formatNumber(product.mariaShareValue)}</td>
+          <td data-label="Gaston">${formatNumber(product.gastonShareValue)}</td>
           <td data-label="Alias">${formatNumber(aliasCountByProduct.get(product.id) || 0)}</td>
           <td data-label="Estado">
             <span class="tag ${product.isActive === false ? "warning" : "success"}">
@@ -239,8 +322,8 @@ export function renderProductsCatalog(products, aliases) {
             <th>Proveedor</th>
             <th>Costo real</th>
             <th>Tipo de reparto</th>
-            <th>María</th>
-            <th>Gastón</th>
+            <th>Maria</th>
+            <th>Gaston</th>
             <th>Alias</th>
             <th>Estado</th>
           </tr>
@@ -287,7 +370,7 @@ export function renderAdjustments(adjustments, targetLookup) {
 
 export function renderSalesDetails(sales) {
   if (!sales?.length) {
-    return "El detalle por venta se mostrará una vez procesado el archivo.";
+    return "El detalle por venta se mostrara una vez procesado el archivo.";
   }
 
   return `
@@ -306,10 +389,10 @@ export function renderSalesDetails(sales) {
                   </div>
                   <div class="muted">
                     Vendedor ${escapeHtml(sale.seller || "Sin vendedor")} · Obs. ${escapeHtml(
-                      sale.observation || "Sin observación",
+                      sale.observation || "Sin observacion",
                     )}
                   </div>
-                  <div class="muted">${escapeHtml(sale.description || "Sin descripción")}</div>
+                  <div class="muted">${escapeHtml(sale.description || "Sin descripcion")}</div>
                 </div>
                 <div class="summary-grid">
                   <div class="summary-pill">
@@ -354,7 +437,7 @@ export function renderSalesDetails(sales) {
                           )} · Utilidad ${formatCurrency(item.profit)}
                         </div>
                         <div class="muted">
-                          María ${formatCurrency(item.mariaShare)} · Gastón ${formatCurrency(
+                          Maria ${formatCurrency(item.mariaShare)} · Gaston ${formatCurrency(
                             item.gastonShare,
                           )} · Proveedor ${formatCurrency(item.providerPayable)}
                         </div>
@@ -378,7 +461,7 @@ export function renderSalesDetails(sales) {
 
 export function renderClosureHistory(closures) {
   if (!closures?.length) {
-    return "No hay cierres guardados todavía.";
+    return "No hay cierres guardados todavia.";
   }
 
   return `
@@ -393,7 +476,7 @@ export function renderClosureHistory(closures) {
                   ${formatDate(closure.closureDate)} · ${escapeHtml(closure.sourceFileName || "Sin archivo")}
                 </div>
                 <div class="muted">
-                  Facturación ${formatCurrency(closure.metrics?.totalRevenue)} · Utilidad ${formatCurrency(
+                  Facturacion ${formatCurrency(closure.metrics?.totalRevenue)} · Utilidad ${formatCurrency(
                     closure.metrics?.totalProfit,
                   )}
                 </div>
@@ -413,7 +496,7 @@ export function renderClosureHistory(closures) {
 
 export function renderExportPreview(payload) {
   if (!payload) {
-    return "Procesá un cierre para ver el payload listo para exportación.";
+    return "Procesa un cierre para ver el payload listo para exportacion.";
   }
 
   return `<pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;

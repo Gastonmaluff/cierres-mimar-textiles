@@ -193,10 +193,19 @@ async function refreshMasterData() {
     return;
   }
 
+  console.info("[master-data] Recargando colecciones:", {
+    productsCollection: "products",
+    aliasesCollection: "product_aliases",
+  });
   const data = await loadMasterData();
   state.products = data.products;
   state.aliases = data.aliases;
   state.closures = data.closures;
+  console.info("[master-data] Datos recargados:", {
+    products: state.products.length,
+    aliases: state.aliases.length,
+    closures: state.closures.length,
+  });
 }
 
 function readConfigFromRow(row) {
@@ -244,6 +253,85 @@ function applyConfigToRow(row, config) {
     config.gastonShareValue || config.gastonShareValue === 0 ? String(config.gastonShareValue) : "";
 
   return true;
+}
+
+function clearRowValidation(row) {
+  row.querySelectorAll(".input-error").forEach((input) => {
+    input.classList.remove("input-error");
+  });
+}
+
+function markInvalidInput(row, selector) {
+  row.querySelector(selector)?.classList.add("input-error");
+}
+
+function upsertById(list, item) {
+  const index = list.findIndex((entry) => entry.id === item.id);
+  if (index === -1) {
+    return [...list, item];
+  }
+
+  const nextList = [...list];
+  nextList[index] = item;
+  return nextList;
+}
+
+function validateProductDraft(row) {
+  clearRowValidation(row);
+
+  const baseNameRaw = row.querySelector(".create-base-name")?.value?.trim() || "";
+  const providerRaw = row.querySelector(".create-provider")?.value?.trim() || "";
+  const costRaw = row.querySelector(".create-cost")?.value?.trim() || "";
+  const allocationType = row.querySelector(".create-allocation-type")?.value || "";
+  const mariaRaw = row.querySelector(".create-maria-share")?.value?.trim() || "";
+  const gastonRaw = row.querySelector(".create-gaston-share")?.value?.trim() || "";
+
+  const draft = {
+    baseName: baseNameRaw,
+    provider: providerRaw,
+    realUnitCost: parseMoney(costRaw),
+    allocationType,
+    mariaShareValue: parseMoney(mariaRaw),
+    gastonShareValue: parseMoney(gastonRaw),
+  };
+
+  const errors = [];
+
+  if (!baseNameRaw) {
+    errors.push("Falta el nombre base.");
+    markInvalidInput(row, ".create-base-name");
+  }
+
+  if (!providerRaw) {
+    errors.push("Falta el proveedor.");
+    markInvalidInput(row, ".create-provider");
+  }
+
+  if (!costRaw || !Number.isFinite(draft.realUnitCost) || draft.realUnitCost <= 0) {
+    errors.push("El costo real unitario debe ser un numero mayor a cero.");
+    markInvalidInput(row, ".create-cost");
+  }
+
+  if (!["profit_percentage", "sale_percentage", "fixed_amount"].includes(allocationType)) {
+    errors.push("El tipo de reparto no es valido.");
+    markInvalidInput(row, ".create-allocation-type");
+  }
+
+  if (mariaRaw === "" || !Number.isFinite(draft.mariaShareValue) || draft.mariaShareValue < 0) {
+    errors.push("El valor de Maria debe ser un numero valido.");
+    markInvalidInput(row, ".create-maria-share");
+  }
+
+  if (gastonRaw === "" || !Number.isFinite(draft.gastonShareValue) || draft.gastonShareValue < 0) {
+    errors.push("El valor de Gaston debe ser un numero valido.");
+    markInvalidInput(row, ".create-gaston-share");
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    draft,
+  };
 }
 
 function getRowPrimaryLabel(row) {
@@ -404,55 +492,99 @@ async function createProductFromUnmapped(row) {
   const group = state.currentClosure?.unmappedProducts.find(
     (item) => item.normalizedKey === normalizedKey,
   );
+  const actionButton = row.querySelector('[data-action="create-product"]');
+
+  console.info("[create-product] Click en crear producto", {
+    normalizedKey,
+    group,
+  });
 
   if (!group) {
+    console.error("[create-product] No se encontro el grupo sin mapear para la fila actual.");
     setMessage("No encontre el producto sin mapear seleccionado.", "error");
     return;
   }
 
-  const baseName = row.querySelector(".create-base-name")?.value?.trim();
-  const provider = row.querySelector(".create-provider")?.value?.trim();
-  const cost = parseMoney(row.querySelector(".create-cost")?.value);
-  const allocationType = row.querySelector(".create-allocation-type")?.value;
-  const mariaShareValue = parseMoney(row.querySelector(".create-maria-share")?.value);
-  const gastonShareValue = parseMoney(row.querySelector(".create-gaston-share")?.value);
-
-  if (!baseName || !provider || !cost) {
-    setMessage("Completa nombre base, proveedor y costo real antes de crear el producto.", "warning");
+  const { isValid, errors, draft } = validateProductDraft(row);
+  if (!isValid) {
+    console.error("[create-product] Validacion fallida", { errors, draft });
+    setMessage(errors.join(" "), "error");
     return;
   }
 
-  const productId = slugify(baseName);
-  await saveProduct({
+  const productId = slugify(draft.baseName);
+  const productPayload = {
     id: productId,
-    baseName,
-    provider,
-    realUnitCost: cost,
-    allocationType,
-    mariaShareValue,
-    gastonShareValue,
+    baseName: draft.baseName,
+    provider: draft.provider,
+    realUnitCost: draft.realUnitCost,
+    allocationType: draft.allocationType,
+    mariaShareValue: draft.mariaShareValue,
+    gastonShareValue: draft.gastonShareValue,
     isActive: true,
+  };
+
+  const aliasPayloads = [
+    ...group.rawLabels.map((label) => ({
+      alias: label,
+      normalizedAlias: normalizeKey(label),
+      productId,
+    })),
+    {
+      alias: group.primaryLabel,
+      normalizedAlias: normalizedKey,
+      productId,
+    },
+  ];
+
+  console.info("[create-product] Datos a guardar", {
+    productPayload,
+    aliasPayloads,
   });
 
-  await Promise.all(
-    group.rawLabels.map((label) =>
-      saveAlias({
-        alias: label,
-        normalizedAlias: normalizeKey(label),
-        productId,
-      }),
-    ),
-  );
+  actionButton?.setAttribute("disabled", "disabled");
 
-  await saveAlias({
-    alias: group.primaryLabel,
-    normalizedAlias: normalizedKey,
-    productId,
-  });
+  try {
+    const savedProduct = await saveProduct(productPayload);
+    const savedAliases = [];
 
-  await refreshMasterData();
-  recomputeClosure();
-  setMessage("Producto creado y vinculado para proximos cierres.", "info");
+    for (const aliasPayload of aliasPayloads) {
+      const savedAlias = await saveAlias(aliasPayload);
+      savedAliases.push(savedAlias);
+    }
+
+    console.info("[create-product] Guardado en Firestore confirmado", {
+      savedProduct,
+      savedAliases,
+    });
+
+    state.products = upsertById(state.products, { ...productPayload, ...savedProduct });
+    savedAliases.forEach((alias) => {
+      state.aliases = upsertById(state.aliases, alias);
+    });
+
+    recomputeClosure();
+    renderAll();
+
+    try {
+      await refreshMasterData();
+      recomputeClosure();
+    } catch (refreshError) {
+      console.error("[create-product] El producto se guardo, pero fallo la recarga desde Firestore", refreshError);
+      setMessage(
+        `Producto creado correctamente, pero no pude recargar desde Firestore: ${refreshError.message}`,
+        "warning",
+      );
+      return;
+    }
+
+    setMessage("Producto creado correctamente.", "info");
+  } catch (error) {
+    console.error("[create-product] Error exacto al guardar", error);
+    setMessage(`Error al crear producto: ${error.message}`, "error");
+  } finally {
+    actionButton?.removeAttribute("disabled");
+  }
 }
 
 function handleUnmappedActions(event) {

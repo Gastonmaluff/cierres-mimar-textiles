@@ -171,6 +171,11 @@ select {
   color: var(--ink);
 }
 
+.input-error {
+  border-color: rgba(180, 35, 24, 0.65) !important;
+  background: rgba(180, 35, 24, 0.06) !important;
+}
+
 .file-field input {
   padding: 10px 12px;
 }

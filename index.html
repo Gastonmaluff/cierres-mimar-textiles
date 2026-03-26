@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cierres Mimar Textiles</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Cierre financiero real</p>
+          <h1>Cierres Mimar Textiles</h1>
+          <p class="hero-copy">
+            Subí el CSV exportado desde Kyte, recalculá costos y utilidades con
+            tu tabla maestra real, y guardá cada cierre en Firebase.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="loadSampleButton" class="secondary-button" type="button">
+            Cargar CSV de ejemplo
+          </button>
+          <button id="seedDataButton" class="ghost-button" type="button">
+            Cargar datos de ejemplo
+          </button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel controls-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Procesar cierre</h2>
+              <p>La app ignora costo y ganancia del CSV de Kyte.</p>
+            </div>
+            <span id="firebaseStatus" class="status-pill">Conectando Firebase...</span>
+          </div>
+
+          <div class="controls-grid">
+            <label class="field file-field">
+              <span>Archivo CSV</span>
+              <input id="csvInput" type="file" accept=".csv,text/csv" />
+            </label>
+
+            <label class="field">
+              <span>Fecha del cierre</span>
+              <input id="closureDateInput" type="date" />
+            </label>
+
+            <label class="field">
+              <span>Nombre del cierre</span>
+              <input
+                id="closureNameInput"
+                type="text"
+                placeholder="Ej. Cierre semanal marzo"
+              />
+            </label>
+          </div>
+
+          <div class="controls-actions">
+            <button id="processButton" class="primary-button" type="button">
+              Procesar CSV
+            </button>
+            <button id="saveClosureButton" class="secondary-button" type="button" disabled>
+              Guardar cierre
+            </button>
+          </div>
+
+          <div id="appMessage" class="message-banner info">
+            Esperando un CSV para calcular el cierre.
+          </div>
+        </section>
+
+        <section id="dashboardSection" class="dashboard"></section>
+
+        <section class="details-stack">
+          <details class="panel collapsible" open>
+            <summary>Resumen por proveedor</summary>
+            <div id="providerSummaryContainer" class="panel-content empty-state">
+              Todavía no hay datos para mostrar.
+            </div>
+          </details>
+
+          <details class="panel collapsible" open>
+            <summary>Resumen por socio</summary>
+            <div id="partnerSummaryContainer" class="panel-content empty-state">
+              Todavía no hay datos para mostrar.
+            </div>
+          </details>
+
+          <details class="panel collapsible" open>
+            <summary>Productos sin mapear</summary>
+            <div id="unmappedProductsContainer" class="panel-content empty-state">
+              Cuando aparezcan nombres nuevos o ambiguos, se mostrarán acá.
+            </div>
+          </details>
+
+          <details class="panel collapsible">
+            <summary>Maestro de productos</summary>
+            <div id="productsCatalogContainer" class="panel-content empty-state">
+              Cuando Firebase cargue, el catálogo aparecerá acá.
+            </div>
+          </details>
+
+          <details class="panel collapsible">
+            <summary>Ajustes manuales</summary>
+            <div class="panel-content adjustments-panel">
+              <form id="adjustmentForm" class="adjustment-form">
+                <label class="field">
+                  <span>Alcance</span>
+                  <select id="adjustmentScopeInput">
+                    <option value="sale">Venta</option>
+                    <option value="item">Ítem</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Destino</span>
+                  <select id="adjustmentTargetInput"></select>
+                </label>
+
+                <label class="field">
+                  <span>Descripción</span>
+                  <input
+                    id="adjustmentLabelInput"
+                    type="text"
+                    placeholder="Ej. costo extra de envío"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>Ajuste de ingreso</span>
+                  <input id="adjustmentRevenueInput" type="number" step="0.01" value="0" />
+                </label>
+
+                <label class="field">
+                  <span>Ajuste de costo</span>
+                  <input id="adjustmentCostInput" type="number" step="0.01" value="0" />
+                </label>
+
+                <label class="field field-notes">
+                  <span>Nota</span>
+                  <input
+                    id="adjustmentNotesInput"
+                    type="text"
+                    placeholder="Opcional"
+                  />
+                </label>
+
+                <button class="primary-button" type="submit">Agregar ajuste</button>
+              </form>
+
+              <div id="adjustmentsListContainer" class="empty-state">
+                No hay ajustes manuales cargados.
+              </div>
+            </div>
+          </details>
+
+          <details class="panel collapsible">
+            <summary>Detalle completo por venta</summary>
+            <div id="salesDetailContainer" class="panel-content empty-state">
+              El detalle aparecerá una vez procesado el CSV.
+            </div>
+          </details>
+
+          <details class="panel collapsible">
+            <summary>Historial de cierres guardados</summary>
+            <div id="closureHistoryContainer" class="panel-content empty-state">
+              No hay cierres guardados todavía.
+            </div>
+          </details>
+
+          <details class="panel collapsible">
+            <summary>Firebase y próximos pasos</summary>
+            <div class="panel-content setup-panel">
+              <p>
+                La configuración de Firebase ya quedó cargada en
+                <code>js/config/firebase-config.js</code>. Si necesitás cambiarla,
+                reemplazá esos valores por los de tu proyecto.
+              </p>
+              <p>
+                El motor también deja armado un payload de exportación para una
+                próxima versión en PDF o Excel.
+              </p>
+              <div id="exportPreviewContainer" class="export-preview empty-state">
+                Procesá un cierre para ver el payload listo para exportación.
+              </div>
+            </div>
+          </details>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

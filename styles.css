@@ -246,6 +246,31 @@ button:disabled {
   border-color: rgba(180, 35, 24, 0.16);
 }
 
+.csv-period-summary {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  border: 1px solid transparent;
+}
+
+.csv-period-summary.info {
+  background: rgba(15, 118, 110, 0.08);
+  border-color: rgba(15, 118, 110, 0.12);
+  color: var(--brand);
+}
+
+.csv-period-summary.warning {
+  background: rgba(202, 138, 4, 0.12);
+  border-color: rgba(202, 138, 4, 0.16);
+  color: #9a6700;
+}
+
+.csv-period-summary.hidden {
+  display: none;
+}
+
 .dashboard {
   display: grid;
   gap: 12px;

@@ -24,7 +24,7 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
-const APP_VERSION = "2026-03-26i";
+const APP_VERSION = "2026-03-26j";
 const FIRESTORE_STEP_TIMEOUT_MS = 15000;
 
 const state = {
@@ -52,6 +52,7 @@ const elements = {
   seedDataButton: document.querySelector("#seedDataButton"),
   firebaseStatus: document.querySelector("#firebaseStatus"),
   appMessage: document.querySelector("#appMessage"),
+  csvPeriodSummary: document.querySelector("#csvPeriodSummary"),
   dashboardSection: document.querySelector("#dashboardSection"),
   providerSummaryContainer: document.querySelector("#providerSummaryContainer"),
   partnerSummaryContainer: document.querySelector("#partnerSummaryContainer"),
@@ -73,6 +74,73 @@ const elements = {
 function setMessage(text, type = "info") {
   elements.appMessage.className = `message-banner ${type}`;
   elements.appMessage.textContent = text;
+}
+
+function formatShortDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("es-PY", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function getCsvPeriodInfo(sales) {
+  const validDates = (sales || [])
+    .map((sale) => new Date(sale?.dateTime))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime());
+
+  if (!validDates.length) {
+    return {
+      hasValidDates: false,
+      oldest: null,
+      newest: null,
+      saleCount: Array.isArray(sales) ? sales.length : 0,
+    };
+  }
+
+  return {
+    hasValidDates: true,
+    oldest: validDates[0],
+    newest: validDates[validDates.length - 1],
+    saleCount: Array.isArray(sales) ? sales.length : validDates.length,
+  };
+}
+
+function buildCsvPeriodLabel(sales) {
+  const period = getCsvPeriodInfo(sales);
+  if (!period.hasValidDates) {
+    return "No se pudo detectar el periodo del CSV";
+  }
+
+  return `Periodo detectado del CSV: ${formatShortDate(period.oldest)} al ${formatShortDate(period.newest)} · ${period.saleCount} venta(s)`;
+}
+
+function updateCsvPeriodSummary() {
+  if (!elements.csvPeriodSummary) {
+    return;
+  }
+
+  if (!state.rawSales.length) {
+    elements.csvPeriodSummary.textContent = "No se detecto todavia el periodo del CSV.";
+    elements.csvPeriodSummary.className = "csv-period-summary hidden";
+    return;
+  }
+
+  const period = getCsvPeriodInfo(state.rawSales);
+  elements.csvPeriodSummary.textContent = buildCsvPeriodLabel(state.rawSales);
+  elements.csvPeriodSummary.className = `csv-period-summary ${
+    period.hasValidDates ? "info" : "warning"
+  }`;
 }
 
 function setFirebaseStatus(text, type = "") {
@@ -150,6 +218,7 @@ function syncCopiedConfigUi() {
 }
 
 function renderAll() {
+  updateCsvPeriodSummary();
   elements.dashboardSection.innerHTML = renderDashboard(state.currentClosure?.metrics);
   elements.providerSummaryContainer.innerHTML = renderProviderSummary(
     state.currentClosure?.providerSummary,
@@ -224,13 +293,15 @@ function recomputeClosure() {
   state.currentClosure = closure;
   renderAll();
 
+  const periodLabel = buildCsvPeriodLabel(state.rawSales);
+
   if (closure.unmappedProducts.length) {
     setMessage(
-      `CSV procesado. Hay ${closure.unmappedProducts.length} producto(s) sin mapear para revisar.`,
+      `CSV procesado. ${periodLabel}. Hay ${closure.unmappedProducts.length} producto(s) sin mapear para revisar.`,
       "warning",
     );
   } else {
-    setMessage("CSV procesado correctamente y todo quedo mapeado.", "info");
+    setMessage(`CSV procesado correctamente. ${periodLabel}.`, "info");
   }
 }
 

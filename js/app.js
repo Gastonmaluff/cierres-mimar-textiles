@@ -24,7 +24,7 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
-const APP_VERSION = "2026-03-26h";
+const APP_VERSION = "2026-03-26i";
 const FIRESTORE_STEP_TIMEOUT_MS = 15000;
 
 const state = {

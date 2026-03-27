@@ -86,10 +86,10 @@ export function renderDashboard(metrics) {
         const valueLength = String(value || "").length;
         const valueClass =
           valueLength >= 18
-            ? "value card-value white-nowrap truncate-number value-xs"
+            ? "value card-value white-nowrap value-xs"
             : valueLength >= 14
-              ? "value card-value white-nowrap truncate-number value-sm"
-              : "value card-value white-nowrap truncate-number";
+              ? "value card-value white-nowrap value-sm"
+              : "value card-value white-nowrap";
 
         return `
         <article class="metric-card card">

@@ -24,7 +24,7 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
-const APP_VERSION = "2026-03-26e";
+const APP_VERSION = "2026-03-26f";
 const FIRESTORE_STEP_TIMEOUT_MS = 15000;
 
 const state = {
@@ -1256,12 +1256,16 @@ async function init() {
   elements.processButton.addEventListener("click", () => {
     handleProcessFile().catch((error) => setMessage(error.message, "error"));
   });
-  elements.loadSampleButton.addEventListener("click", () => {
-    handleLoadSample().catch((error) => setMessage(error.message, "error"));
-  });
-  elements.seedDataButton.addEventListener("click", () => {
-    handleSeedData().catch((error) => setMessage(error.message, "error"));
-  });
+  if (elements.loadSampleButton) {
+    elements.loadSampleButton.addEventListener("click", () => {
+      handleLoadSample().catch((error) => setMessage(error.message, "error"));
+    });
+  }
+  if (elements.seedDataButton) {
+    elements.seedDataButton.addEventListener("click", () => {
+      handleSeedData().catch((error) => setMessage(error.message, "error"));
+    });
+  }
   elements.saveClosureButton.addEventListener("click", () => {
     handleSaveClosure().catch((error) => setMessage(error.message, "error"));
   });

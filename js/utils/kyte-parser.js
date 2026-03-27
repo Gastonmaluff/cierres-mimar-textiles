@@ -3,6 +3,7 @@ import {
   normalizeKey,
   parseFlexibleDate,
   parseMoney,
+  parseParaguayanMoney,
   slugify,
   sumBy,
 } from "./normalizers.js";
@@ -56,6 +57,27 @@ const DESCRIPTION_HEADER_BLOCKLIST = [
   "cantidad de items",
 ];
 
+const FIELD_HEADER_BLOCKLIST = {
+  dateTime: ["descri items", "subtotal", "total", "cliente", "vendedor"],
+  quantity: ["total de items", "total items", "cantidad de items", "subtotal", "total"],
+  subtotal: ["total de items", "total items", "cantidad", "descri items", "ganancia"],
+  discount: ["total de items", "total items", "cantidad", "descri items", "ganancia"],
+  shipping: ["total de items", "total items", "cantidad", "descri items", "ganancia"],
+  total: [
+    "total de items",
+    "total items",
+    "cantidad de items",
+    "cantidad",
+    "subtotal",
+    "descri items",
+    "ganancia",
+  ],
+  paymentMethod: ["descri items", "subtotal", "total"],
+  customer: ["descri items", "subtotal", "total"],
+  seller: ["descri items", "subtotal", "total"],
+  observation: ["descri items", "subtotal", "total"],
+};
+
 function getFieldValue(record, fieldName) {
   for (const [header, rawValue] of Object.entries(record)) {
     const normalizedHeader = normalizeKey(header);
@@ -65,6 +87,24 @@ function getFieldValue(record, fieldName) {
   }
 
   return "";
+}
+
+function isMoneyLike(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return false;
+  }
+
+  return /^-?\d{1,3}(?:[.\s]\d{3})+(?:,\d+)?$/.test(text) || /^\d{4,}$/.test(text);
+}
+
+function isQuantityLike(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return false;
+  }
+
+  return /^\d+$/.test(text);
 }
 
 function isNumericLike(value) {
@@ -159,6 +199,96 @@ function detectDescriptionColumn(records) {
 
   console.info(
     `[kyte-parser] Columna de descripcion detectada: "${bestMatch.header}" (score ${bestMatch.score.toFixed(
+      1,
+    )})`,
+  );
+
+  return bestMatch.header;
+}
+
+function scoreFieldHeader(fieldName, header, values) {
+  const normalizedHeader = normalizeKey(header);
+  if (!normalizedHeader || normalizedHeader.startsWith("__")) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const candidates = FIELD_CANDIDATES[fieldName] || [];
+  const blocklist = FIELD_HEADER_BLOCKLIST[fieldName] || [];
+  let score = 0;
+
+  if (candidates.includes(normalizedHeader)) {
+    score += 220;
+  }
+
+  candidates.forEach((candidate) => {
+    if (normalizedHeader.startsWith(candidate)) {
+      score += 90;
+    } else if (normalizedHeader.includes(candidate)) {
+      score += 30;
+    }
+  });
+
+  if (blocklist.includes(normalizedHeader)) {
+    score -= 220;
+  }
+
+  blocklist.forEach((blocked) => {
+    if (normalizedHeader.includes(blocked)) {
+      score -= 90;
+    }
+  });
+
+  const nonEmptyValues = values.map((value) => String(value || "").trim()).filter(Boolean);
+  const moneyLikeValues = nonEmptyValues.filter(isMoneyLike);
+  const quantityLikeValues = nonEmptyValues.filter(isQuantityLike);
+  const textLikeValues = nonEmptyValues.filter((value) => !isNumericLike(value));
+
+  if (["subtotal", "discount", "shipping", "total"].includes(fieldName)) {
+    score += moneyLikeValues.length * 10;
+    score -= quantityLikeValues.length * 4;
+    if (fieldName === "total" && normalizedHeader === "total") {
+      score += 200;
+    }
+    if (fieldName === "subtotal" && normalizedHeader === "subtotal") {
+      score += 200;
+    }
+  }
+
+  if (fieldName === "quantity") {
+    score += quantityLikeValues.length * 8;
+    score -= moneyLikeValues.length * 6;
+  }
+
+  if (["customer", "seller", "paymentMethod", "observation"].includes(fieldName)) {
+    score += textLikeValues.length * 4;
+    score -= moneyLikeValues.length * 4;
+  }
+
+  return score;
+}
+
+function detectFieldColumn(records, fieldName) {
+  const sampleRecords = records.slice(0, 12);
+  const headers = Object.keys(sampleRecords[0] || {}).filter((header) => !header.startsWith("__"));
+  const scoredHeaders = headers
+    .map((header) => ({
+      header,
+      score: scoreFieldHeader(
+        fieldName,
+        header,
+        sampleRecords.map((record) => record[header]),
+      ),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const bestMatch = scoredHeaders[0];
+  if (!bestMatch || bestMatch.score < 20) {
+    console.warn(`[kyte-parser] No se detecto una columna confiable para ${fieldName}.`, scoredHeaders);
+    return null;
+  }
+
+  console.info(
+    `[kyte-parser] Columna detectada para ${fieldName}: "${bestMatch.header}" (score ${bestMatch.score.toFixed(
       1,
     )})`,
   );
@@ -293,6 +423,16 @@ function parseItemSegment(segment, fallbackQuantity = 1, saleIndex = 0, itemInde
 
 export function parseKyteSales(records) {
   const descriptionHeader = detectDescriptionColumn(records);
+  const quantityHeader = detectFieldColumn(records, "quantity");
+  const subtotalHeader = detectFieldColumn(records, "subtotal");
+  const discountHeader = detectFieldColumn(records, "discount");
+  const shippingHeader = detectFieldColumn(records, "shipping");
+  const totalHeader = detectFieldColumn(records, "total");
+  const dateTimeHeader = detectFieldColumn(records, "dateTime");
+  const paymentMethodHeader = detectFieldColumn(records, "paymentMethod");
+  const customerHeader = detectFieldColumn(records, "customer");
+  const sellerHeader = detectFieldColumn(records, "seller");
+  const observationHeader = detectFieldColumn(records, "observation");
 
   return records
     .map((record, index) => {
@@ -307,12 +447,22 @@ export function parseKyteSales(records) {
         description,
       );
 
-      const fallbackQuantity = parseMoney(getFieldValue(record, "quantity")) || 1;
-      const subtotal = parseMoney(getFieldValue(record, "subtotal"));
-      const discount = parseMoney(getFieldValue(record, "discount"));
-      const shipping = parseMoney(getFieldValue(record, "shipping"));
-      const total =
-        parseMoney(getFieldValue(record, "total")) || subtotal - discount + shipping;
+      const fallbackQuantity = parseMoney(
+        quantityHeader ? record[quantityHeader] : getFieldValue(record, "quantity"),
+      ) || 1;
+      const subtotal = parseParaguayanMoney(
+        subtotalHeader ? record[subtotalHeader] : getFieldValue(record, "subtotal"),
+      );
+      const discount = parseParaguayanMoney(
+        discountHeader ? record[discountHeader] : getFieldValue(record, "discount"),
+      );
+      const shipping = parseParaguayanMoney(
+        shippingHeader ? record[shippingHeader] : getFieldValue(record, "shipping"),
+      );
+      const totalValue = parseParaguayanMoney(
+        totalHeader ? record[totalHeader] : getFieldValue(record, "total"),
+      );
+      const total = totalValue || subtotal - discount + shipping;
       const segments = splitDescriptionIntoSegments(description);
       const parsedItems = segments
         .map((segment, itemIndex) =>
@@ -324,9 +474,11 @@ export function parseKyteSales(records) {
           ),
         )
         .filter(Boolean);
-      const dateTime = parseFlexibleDate(getFieldValue(record, "dateTime"));
+      const dateTime = parseFlexibleDate(
+        dateTimeHeader ? record[dateTimeHeader] : getFieldValue(record, "dateTime"),
+      );
       const totalQuantity =
-        parseMoney(getFieldValue(record, "quantity")) ||
+        parseMoney(quantityHeader ? record[quantityHeader] : getFieldValue(record, "quantity")) ||
         sumBy(parsedItems, (item) => item.quantity) ||
         1;
       const saleId = `sale-${index + 1}-${slugify(
@@ -343,10 +495,14 @@ export function parseKyteSales(records) {
         discount,
         shipping,
         total,
-        paymentMethod: getFieldValue(record, "paymentMethod"),
-        customer: getFieldValue(record, "customer"),
-        seller: getFieldValue(record, "seller"),
-        observation: getFieldValue(record, "observation"),
+        paymentMethod: paymentMethodHeader
+          ? record[paymentMethodHeader]
+          : getFieldValue(record, "paymentMethod"),
+        customer: customerHeader ? record[customerHeader] : getFieldValue(record, "customer"),
+        seller: sellerHeader ? record[sellerHeader] : getFieldValue(record, "seller"),
+        observation: observationHeader
+          ? record[observationHeader]
+          : getFieldValue(record, "observation"),
         parsedItems: parsedItems.length > 0 ? parsedItems : [],
         rawRecord: record,
       };

@@ -272,6 +272,18 @@ button:disabled {
   margin: 8px 0 0;
   font-family: "Space Grotesk", sans-serif;
   font-size: clamp(1.4rem, 3vw, 2rem);
+  line-height: 1.02;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.metric-card .value-sm {
+  font-size: clamp(1.2rem, 2.4vw, 1.7rem);
+}
+
+.metric-card .value-xs {
+  font-size: clamp(1rem, 2vw, 1.35rem);
 }
 
 .metric-card .helper {

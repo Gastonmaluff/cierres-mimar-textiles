@@ -24,7 +24,7 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
-const APP_VERSION = "2026-03-26d";
+const APP_VERSION = "2026-03-26e";
 const FIRESTORE_STEP_TIMEOUT_MS = 15000;
 
 const state = {
@@ -705,6 +705,25 @@ function copyRowConfiguration(row, sourceLabel) {
   setMessage(`Configuracion copiada desde ${sourceLabel}.`, "info");
 }
 
+function copyProductConfiguration(productId) {
+  const product = state.products.find((entry) => entry.id === productId);
+  if (!product) {
+    setMessage("No encontre el producto para copiar la configuracion.", "error");
+    return;
+  }
+
+  state.copiedConfig = {
+    provider: product.provider || "",
+    cost: Number(product.realUnitCost) || 0,
+    allocationType: product.allocationType || "profit_percentage",
+    mariaShareValue: Number(product.mariaShareValue) || 0,
+    gastonShareValue: Number(product.gastonShareValue) || 0,
+    sourceLabel: `maestro: ${product.baseName || "producto"}`,
+  };
+  syncCopiedConfigUi();
+  setMessage("Configuracion copiada desde el maestro.", "info");
+}
+
 function pasteConfigurationIntoRow(row, config, successMessage) {
   if (!config) {
     setMessage("No hay una configuracion copiada disponible.", "warning");
@@ -1114,6 +1133,11 @@ function handleProductsCatalogClick(event) {
 
   if (action === "edit-product") {
     startProductEdit(productId);
+    return;
+  }
+
+  if (action === "copy-product-config") {
+    copyProductConfiguration(productId);
     return;
   }
 

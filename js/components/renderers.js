@@ -82,13 +82,19 @@ export function renderDashboard(metrics) {
 
   return cards
     .map(
-      ([label, value, helper]) => `
+      ([label, value, helper]) => {
+        const valueLength = String(value || "").length;
+        const valueClass =
+          valueLength >= 18 ? "value value-xs" : valueLength >= 14 ? "value value-sm" : "value";
+
+        return `
         <article class="metric-card">
           <p class="label">${label}</p>
-          <p class="value">${value}</p>
+          <p class="${valueClass}">${value}</p>
           <p class="helper">${helper}</p>
         </article>
-      `,
+      `;
+      },
     )
     .join("");
 }
@@ -416,11 +422,18 @@ export function renderProductsCatalog(products, aliases, productEditState = {}) 
               </span>
             </td>
             <td data-label="Acciones">
-              <button class="tiny-button" type="button" data-action="edit-product" data-product-id="${escapeHtml(
-                product.id,
-              )}">
-                Editar
-              </button>
+              <div class="inline-actions">
+                <button class="tiny-button" type="button" data-action="edit-product" data-product-id="${escapeHtml(
+                  product.id,
+                )}">
+                  Editar
+                </button>
+                <button class="tiny-button" type="button" data-action="copy-product-config" data-product-id="${escapeHtml(
+                  product.id,
+                )}">
+                  Copiar config.
+                </button>
+              </div>
             </td>
           </tr>
         `;

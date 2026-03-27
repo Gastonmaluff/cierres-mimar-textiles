@@ -23,7 +23,7 @@ export function titleCase(value) {
     .join(" ");
 }
 
-export function parseMoney(value) {
+export function parseParaguayanMoney(value) {
   if (value === null || value === undefined || value === "") {
     return 0;
   }
@@ -70,6 +70,10 @@ export function parseMoney(value) {
   }
 
   return isNegative ? -Math.abs(parsed) : parsed;
+}
+
+export function parseMoney(value) {
+  return parseParaguayanMoney(value);
 }
 
 export function parseNumber(value, fallback = 0) {

@@ -85,10 +85,14 @@ export function renderDashboard(metrics) {
       ([label, value, helper]) => {
         const valueLength = String(value || "").length;
         const valueClass =
-          valueLength >= 18 ? "value value-xs" : valueLength >= 14 ? "value value-sm" : "value";
+          valueLength >= 18
+            ? "value card-value white-nowrap truncate-number value-xs"
+            : valueLength >= 14
+              ? "value card-value white-nowrap truncate-number value-sm"
+              : "value card-value white-nowrap truncate-number";
 
         return `
-        <article class="metric-card">
+        <article class="metric-card card">
           <p class="label">${label}</p>
           <p class="${valueClass}">${value}</p>
           <p class="helper">${helper}</p>

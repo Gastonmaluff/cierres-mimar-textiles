@@ -9,6 +9,7 @@ import {
 } from "./normalizers.js";
 
 const FIELD_CANDIDATES = {
+  status: ["status", "estado", "situacao", "situacion", "situation"],
   dateTime: ["fecha hora", "data hora", "date time", "fecha", "data"],
   description: [
     "descri items",
@@ -58,6 +59,7 @@ const DESCRIPTION_HEADER_BLOCKLIST = [
 ];
 
 const FIELD_HEADER_BLOCKLIST = {
+  status: ["descri items", "subtotal", "total", "cliente", "vendedor"],
   dateTime: ["descri items", "subtotal", "total", "cliente", "vendedor"],
   quantity: ["total de items", "total items", "cantidad de items", "subtotal", "total"],
   subtotal: ["total de items", "total items", "cantidad", "descri items", "ganancia"],
@@ -296,6 +298,30 @@ function detectFieldColumn(records, fieldName) {
   return bestMatch.header;
 }
 
+function normalizeStatusValue(value) {
+  return normalizeKey(String(value || "").trim());
+}
+
+function isCompletedSaleStatus(value) {
+  const normalized = normalizeStatusValue(value);
+  if (!normalized) {
+    return true;
+  }
+
+  return [
+    "venta",
+    "sale",
+    "sold",
+    "completado",
+    "completada",
+    "completed",
+    "concluido",
+    "concluida",
+    "finalizado",
+    "finalizada",
+  ].includes(normalized);
+}
+
 function normalizeDescription(description) {
   return String(description || "")
     .replace(/\r/g, "\n")
@@ -422,6 +448,7 @@ function parseItemSegment(segment, fallbackQuantity = 1, saleIndex = 0, itemInde
 }
 
 export function parseKyteSales(records) {
+  const statusHeader = detectFieldColumn(records, "status");
   const descriptionHeader = detectDescriptionColumn(records);
   const quantityHeader = detectFieldColumn(records, "quantity");
   const subtotalHeader = detectFieldColumn(records, "subtotal");
@@ -439,6 +466,7 @@ export function parseKyteSales(records) {
       const description = descriptionHeader
         ? String(record[descriptionHeader] || "").trim()
         : getFieldValue(record, "description");
+      const rawStatus = statusHeader ? String(record[statusHeader] || "").trim() : "";
 
       console.info(
         `[kyte-parser] Fila ${record.__rowNumber || index + 2}: texto extraido de "${
@@ -488,6 +516,7 @@ export function parseKyteSales(records) {
       return {
         id: saleId,
         sourceRowNumber: record.__rowNumber || index + 2,
+        status: rawStatus,
         dateTime: dateTime ? dateTime.toISOString() : "",
         description,
         quantity: totalQuantity,
@@ -509,8 +538,11 @@ export function parseKyteSales(records) {
     })
     .filter(
       (sale) =>
-        (isMeaningfulDescription(sale.description) && sale.parsedItems.length > 0) ||
-        sale.total ||
-        sale.subtotal,
+        isCompletedSaleStatus(sale.status) &&
+        (
+          (isMeaningfulDescription(sale.description) && sale.parsedItems.length > 0) ||
+          sale.total ||
+          sale.subtotal
+        ),
     );
 }

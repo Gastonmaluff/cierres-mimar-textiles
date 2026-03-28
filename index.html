@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260327a" />
+    <link rel="stylesheet" href="./styles.css?v=20260328a" />
   </head>
   <body>
     <div class="page-shell">
@@ -24,34 +24,57 @@
             <span id="firebaseStatus" class="status-pill">Conectando Firebase...</span>
           </div>
 
-          <div class="controls-grid">
-            <label class="field file-field">
-              <span>Archivo CSV</span>
-              <input id="csvInput" type="file" accept=".csv,text/csv" />
-            </label>
+          <div class="controls-stack">
+            <div class="control-block">
+              <div class="field file-field">
+                <span>Archivo CSV</span>
+                <div id="fileInputShell" class="file-picker-shell">
+                  <input id="csvInput" class="native-file-input" type="file" accept=".csv,text/csv" />
+                  <label for="csvInput" class="file-trigger">
+                    <span class="file-trigger-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 16V5"></path>
+                        <path d="M8.5 8.5 12 5l3.5 3.5"></path>
+                        <path d="M5 18.5h14"></path>
+                      </svg>
+                    </span>
+                    <span>Elegir CSV</span>
+                  </label>
+                  <div id="selectedFileName" class="selected-file-name">
+                    Ningun archivo seleccionado
+                  </div>
+                </div>
+              </div>
+            </div>
 
-            <label class="field">
-              <span>Fecha del cierre</span>
-              <input id="closureDateInput" type="date" />
-            </label>
+            <div class="control-block">
+              <div class="controls-meta-grid">
+                <label class="field">
+                  <span>Fecha del cierre</span>
+                  <input id="closureDateInput" type="date" />
+                </label>
 
-            <label class="field">
-              <span>Nombre del cierre</span>
-              <input
-                id="closureNameInput"
-                type="text"
-                placeholder="Ej. Cierre semanal marzo"
-              />
-            </label>
+                <label class="field">
+                  <span>Nombre del cierre</span>
+                  <input
+                    id="closureNameInput"
+                    type="text"
+                    placeholder="Ej. Cierre semanal marzo"
+                  />
+                </label>
+              </div>
+            </div>
           </div>
 
-          <div class="controls-actions">
-            <button id="processButton" class="primary-button" type="button">
-              Procesar CSV
-            </button>
-            <button id="saveClosureButton" class="secondary-button" type="button" disabled>
-              Guardar cierre
-            </button>
+          <div class="control-block actions-block">
+            <div class="controls-actions">
+              <button id="processButton" class="primary-button" type="button">
+                Procesar CSV
+              </button>
+              <button id="saveClosureButton" class="secondary-button" type="button" disabled>
+                Guardar cierre
+              </button>
+            </div>
           </div>
 
           <div id="appMessage" class="message-banner info">
@@ -179,6 +202,6 @@
       </main>
     </div>
 
-    <script type="module" src="./js/app.js?v=20260327a"></script>
+    <script type="module" src="./js/app.js?v=20260328a"></script>
   </body>
 </html>

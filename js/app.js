@@ -24,7 +24,7 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
-const APP_VERSION = "2026-03-27a";
+const APP_VERSION = "2026-03-28a";
 const FIRESTORE_STEP_TIMEOUT_MS = 15000;
 
 const state = {
@@ -44,6 +44,8 @@ const state = {
 
 const elements = {
   csvInput: document.querySelector("#csvInput"),
+  selectedFileName: document.querySelector("#selectedFileName"),
+  fileInputShell: document.querySelector("#fileInputShell"),
   closureDateInput: document.querySelector("#closureDateInput"),
   closureNameInput: document.querySelector("#closureNameInput"),
   processButton: document.querySelector("#processButton"),
@@ -74,6 +76,17 @@ const elements = {
 function setMessage(text, type = "info") {
   elements.appMessage.className = `message-banner ${type}`;
   elements.appMessage.textContent = text;
+}
+
+function updateSelectedFileUi(fileName = "") {
+  if (!elements.selectedFileName || !elements.fileInputShell) {
+    return;
+  }
+
+  const hasFile = Boolean(fileName);
+  elements.selectedFileName.textContent = hasFile ? fileName : "Ningun archivo seleccionado";
+  elements.selectedFileName.classList.toggle("has-file", hasFile);
+  elements.fileInputShell.classList.toggle("has-file", hasFile);
 }
 
 function formatShortDate(value) {
@@ -840,6 +853,7 @@ async function processCsvText(text, fileName) {
   state.rawSales = parsedSales;
   state.manualAdjustments = [];
   state.sourceFileName = fileName || "archivo.csv";
+  updateSelectedFileUi(fileName || "");
   state.productCreationStatus = {};
   state.unmappedFormDrafts = {};
   state.productEditState = {};
@@ -1323,9 +1337,14 @@ function handleHistoryClick(event) {
 async function init() {
   console.info(`[app] Version cargada: ${APP_VERSION}`);
   elements.closureDateInput.value = new Date().toISOString().slice(0, 10);
+  updateSelectedFileUi("");
 
   elements.processButton.addEventListener("click", () => {
     handleProcessFile().catch((error) => setMessage(error.message, "error"));
+  });
+  elements.csvInput.addEventListener("change", () => {
+    const fileName = elements.csvInput.files?.[0]?.name || "";
+    updateSelectedFileUi(fileName);
   });
   if (elements.loadSampleButton) {
     elements.loadSampleButton.addEventListener("click", () => {

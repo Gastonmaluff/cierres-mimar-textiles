@@ -720,6 +720,10 @@ td strong,
   overflow-x: auto;
 }
 
+.hidden-support-panel {
+  display: none;
+}
+
 pre {
   margin: 0;
   font-size: 0.82rem;

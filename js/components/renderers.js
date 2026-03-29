@@ -118,6 +118,13 @@ export function renderProviderSummary(rows) {
           <td data-label="Costo">${formatCurrency(row.totalCost)}</td>
           <td data-label="Utilidad">${formatCurrency(row.totalProfit)}</td>
           <td data-label="A pagar">${formatCurrency(row.payable)}</td>
+          <td data-label="Acciones">
+            <button class="tiny-button" type="button" data-action="open-provider-detail" data-provider="${escapeHtml(
+              row.provider,
+            )}">
+              Desglosar
+            </button>
+          </td>
         </tr>
       `,
     )
@@ -134,10 +141,92 @@ export function renderProviderSummary(rows) {
             <th>Costo real</th>
             <th>Utilidad</th>
             <th>A pagar</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>${body}</tbody>
       </table>
+    </div>
+  `;
+}
+
+export function renderProviderDetailModal(detail) {
+  if (!detail) {
+    return "";
+  }
+
+  const body = detail.items.length
+    ? detail.items
+        .map(
+          (item) => `
+            <tr>
+              <td data-label="Producto"><strong>${escapeHtml(item.productName)}</strong></td>
+              <td data-label="Cantidad">${formatNumber(item.quantity)}</td>
+              <td data-label="Venta asociada">${formatCurrency(item.totalRevenue)}</td>
+              <td data-label="Costo real">${formatCurrency(item.totalCost)}</td>
+              <td data-label="Utilidad">${formatCurrency(item.totalProfit)}</td>
+            </tr>
+          `,
+        )
+        .join("")
+    : `
+        <tr>
+          <td colspan="5" class="empty-state">No hay items para este proveedor en el cierre actual.</td>
+        </tr>
+      `;
+
+  return `
+    <div class="modal-overlay" data-action="close-provider-detail">
+      <div class="modal-dialog provider-modal" role="dialog" aria-modal="true" aria-labelledby="providerDetailTitle">
+        <div class="modal-header">
+          <div>
+            <h3 id="providerDetailTitle">Detalle de proveedor: ${escapeHtml(detail.provider)}</h3>
+            <p>Desglose armado con los items del cierre actual.</p>
+          </div>
+          <div class="inline-actions">
+            <button class="tiny-button" type="button" data-action="copy-provider-detail">
+              Copiar detalle
+            </button>
+            <button class="tiny-button" type="button" data-action="close-provider-detail">
+              Cerrar
+            </button>
+          </div>
+        </div>
+
+        <div class="table-wrap modal-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Cantidad</th>
+                <th>Venta asociada</th>
+                <th>Costo real</th>
+                <th>Utilidad</th>
+              </tr>
+            </thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+
+        <div class="modal-summary-grid">
+          <div class="summary-pill">
+            <p class="muted">Total ventas</p>
+            <strong>${formatCurrency(detail.summary.totalRevenue)}</strong>
+          </div>
+          <div class="summary-pill">
+            <p class="muted">Total costo</p>
+            <strong>${formatCurrency(detail.summary.totalCost)}</strong>
+          </div>
+          <div class="summary-pill">
+            <p class="muted">Total utilidad</p>
+            <strong>${formatCurrency(detail.summary.totalProfit)}</strong>
+          </div>
+          <div class="summary-pill">
+            <p class="muted">Total a pagar</p>
+            <strong>${formatCurrency(detail.summary.totalPayable)}</strong>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 }

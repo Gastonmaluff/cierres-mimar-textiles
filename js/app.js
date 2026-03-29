@@ -3,6 +3,7 @@ import {
   renderClosureHistory,
   renderDashboard,
   renderExportPreview,
+  renderProviderDetailModal,
   renderPartnerSummary,
   renderProductsCatalog,
   renderProviderSummary,
@@ -24,7 +25,7 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
-const APP_VERSION = "2026-03-28a";
+const APP_VERSION = "2026-03-29a";
 const FIRESTORE_STEP_TIMEOUT_MS = 15000;
 
 const state = {
@@ -40,6 +41,7 @@ const state = {
   productCreationStatus: {},
   unmappedFormDrafts: {},
   productEditState: {},
+  selectedProviderDetail: null,
 };
 
 const elements = {
@@ -57,6 +59,7 @@ const elements = {
   csvPeriodSummary: document.querySelector("#csvPeriodSummary"),
   dashboardSection: document.querySelector("#dashboardSection"),
   providerSummaryContainer: document.querySelector("#providerSummaryContainer"),
+  providerDetailModalRoot: document.querySelector("#providerDetailModalRoot"),
   partnerSummaryContainer: document.querySelector("#partnerSummaryContainer"),
   unmappedProductsContainer: document.querySelector("#unmappedProductsContainer"),
   productsCatalogContainer: document.querySelector("#productsCatalogContainer"),
@@ -256,6 +259,10 @@ function renderAll() {
   elements.exportPreviewContainer.innerHTML = renderExportPreview(
     state.currentClosure?.exportPayload,
   );
+  elements.providerDetailModalRoot.innerHTML = renderProviderDetailModal(
+    state.selectedProviderDetail,
+  );
+  document.body.classList.toggle("modal-open", Boolean(state.selectedProviderDetail));
 
   const lookup = new Map();
   const targets = buildAdjustmentTargets(state.currentClosure);
@@ -270,6 +277,108 @@ function renderAll() {
   updateAdjustmentTargets();
   elements.saveClosureButton.disabled = !(state.firebaseReady && state.currentClosure);
   syncCopiedConfigUi();
+}
+
+function buildProviderDetail(providerName) {
+  if (!state.currentClosure || !providerName) {
+    return null;
+  }
+
+  const groupedItems = new Map();
+  const providerItems = (state.currentClosure.sales || [])
+    .flatMap((sale) => sale.parsedItems || [])
+    .filter((item) => item.provider === providerName);
+
+  providerItems.forEach((item) => {
+    const productName = item.productBaseName || item.name || "Producto sin nombre";
+    const current = groupedItems.get(productName) || {
+      productName,
+      quantity: 0,
+      totalRevenue: 0,
+      totalCost: 0,
+      totalProfit: 0,
+      totalPayable: 0,
+    };
+
+    current.quantity += Number(item.quantity) || 0;
+    current.totalRevenue += Number(item.adjustedRevenue) || 0;
+    current.totalCost += Number(item.providerPayable) || 0;
+    current.totalProfit += Number(item.profit) || 0;
+    current.totalPayable += Number(item.providerPayable) || 0;
+    groupedItems.set(productName, current);
+  });
+
+  const items = [...groupedItems.values()].sort((left, right) =>
+    left.productName.localeCompare(right.productName, "es"),
+  );
+
+  return {
+    provider: providerName,
+    items,
+    summary: {
+      totalRevenue: items.reduce((sum, item) => sum + item.totalRevenue, 0),
+      totalCost: items.reduce((sum, item) => sum + item.totalCost, 0),
+      totalProfit: items.reduce((sum, item) => sum + item.totalProfit, 0),
+      totalPayable: items.reduce((sum, item) => sum + item.totalPayable, 0),
+    },
+  };
+}
+
+function buildProviderDetailClipboardText(detail) {
+  if (!detail) {
+    return "";
+  }
+
+  const lines = [
+    `Proveedor: ${detail.provider}`,
+    "",
+    ...detail.items.map(
+      (item) =>
+        `- ${item.productName} -> ${item.quantity} unidades -> ${formatInlineCurrency(item.totalPayable)}`,
+    ),
+    "",
+    `Total ventas: ${formatInlineCurrency(detail.summary.totalRevenue)}`,
+    `Total costo: ${formatInlineCurrency(detail.summary.totalCost)}`,
+    `Total utilidad: ${formatInlineCurrency(detail.summary.totalProfit)}`,
+    `Total a pagar: ${formatInlineCurrency(detail.summary.totalPayable)}`,
+  ];
+
+  return lines.join("\n");
+}
+
+function openProviderDetail(providerName) {
+  const detail = buildProviderDetail(providerName);
+  if (!detail) {
+    setMessage("No encontre el detalle de ese proveedor en el cierre actual.", "warning");
+    return;
+  }
+
+  state.selectedProviderDetail = detail;
+  renderAll();
+}
+
+function closeProviderDetail() {
+  if (!state.selectedProviderDetail) {
+    return;
+  }
+
+  state.selectedProviderDetail = null;
+  renderAll();
+}
+
+async function copyProviderDetail() {
+  if (!state.selectedProviderDetail) {
+    return;
+  }
+
+  const text = buildProviderDetailClipboardText(state.selectedProviderDetail);
+  try {
+    await navigator.clipboard.writeText(text);
+    setMessage("Detalle del proveedor copiado para compartir.", "info");
+  } catch (error) {
+    console.error("[provider-detail] No pude copiar el detalle", error);
+    setMessage("No pude copiar el detalle del proveedor.", "error");
+  }
 }
 
 function updateAdjustmentTargets() {
@@ -287,6 +396,7 @@ function updateAdjustmentTargets() {
 function recomputeClosure() {
   if (!state.rawSales.length) {
     state.currentClosure = null;
+    state.selectedProviderDetail = null;
     renderAll();
     return;
   }
@@ -304,6 +414,9 @@ function recomputeClosure() {
   closure.rawSales = state.rawSales;
   closure.exportPayload = buildExportPayload(closure);
   state.currentClosure = closure;
+  state.selectedProviderDetail = state.selectedProviderDetail
+    ? buildProviderDetail(state.selectedProviderDetail.provider)
+    : null;
   renderAll();
 
   const periodLabel = buildCsvPeriodLabel(state.rawSales);
@@ -857,6 +970,7 @@ async function processCsvText(text, fileName) {
   state.productCreationStatus = {};
   state.unmappedFormDrafts = {};
   state.productEditState = {};
+  state.selectedProviderDetail = null;
   recomputeClosure();
 }
 
@@ -1328,10 +1442,38 @@ function handleHistoryClick(event) {
   state.rawSales = closure.rawSales || [];
   state.manualAdjustments = closure.manualAdjustments || [];
   state.sourceFileName = closure.sourceFileName || "";
+  state.selectedProviderDetail = null;
   elements.closureDateInput.value = closure.closureDate || elements.closureDateInput.value;
   elements.closureNameInput.value = closure.closureName || "";
   renderAll();
   setMessage("Cierre guardado cargado en pantalla.", "info");
+}
+
+function handleProviderSummaryClick(event) {
+  const button = event.target.closest('[data-action="open-provider-detail"]');
+  if (!button) {
+    return;
+  }
+
+  openProviderDetail(button.dataset.provider || "");
+}
+
+function handleProviderDetailModalClick(event) {
+  const actionTarget = event.target.closest("[data-action]");
+  const clickedOverlay = event.target.classList.contains("modal-overlay");
+  const action = actionTarget?.dataset.action || (clickedOverlay ? "close-provider-detail" : "");
+
+  if (action === "close-provider-detail") {
+    closeProviderDetail();
+    return;
+  }
+
+  if (action === "copy-provider-detail") {
+    copyProviderDetail().catch((error) => {
+      console.error("[provider-detail] Error al copiar detalle", error);
+      setMessage("No pude copiar el detalle del proveedor.", "error");
+    });
+  }
 }
 
 async function init() {
@@ -1369,6 +1511,8 @@ async function init() {
   elements.productsCatalogContainer.addEventListener("change", handleProductsCatalogFieldEdit);
   elements.adjustmentsListContainer.addEventListener("click", handleAdjustmentListClick);
   elements.closureHistoryContainer.addEventListener("click", handleHistoryClick);
+  elements.providerSummaryContainer.addEventListener("click", handleProviderSummaryClick);
+  elements.providerDetailModalRoot.addEventListener("click", handleProviderDetailModalClick);
   elements.closureDateInput.addEventListener("change", () => {
     if (state.rawSales.length) {
       recomputeClosure();

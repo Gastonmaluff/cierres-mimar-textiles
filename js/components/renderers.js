@@ -10,6 +10,78 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function buildTraceReferenceLabel(trace) {
+  if (trace.sourceRowNumber) {
+    return `Fila ${trace.sourceRowNumber}`;
+  }
+
+  if (trace.saleId) {
+    return trace.saleId;
+  }
+
+  return "Venta sin referencia";
+}
+
+function renderTraceTooltipContent(traceEntries) {
+  if (!traceEntries?.length) {
+    return `<p>Sin detalle de cliente disponible</p>`;
+  }
+
+  const previewItems = traceEntries
+    .slice(0, 6)
+    .map(
+      (trace) => `
+        <li>
+          <strong>${escapeHtml(trace.customer || "Sin cliente")}</strong>
+          <span>${escapeHtml(buildTraceReferenceLabel(trace))} · ${escapeHtml(
+            formatDate(trace.dateTime),
+          )}</span>
+          <span>Vendedor: ${escapeHtml(trace.seller || "Sin vendedor")}</span>
+        </li>
+      `,
+    )
+    .join("");
+
+  const extraCount = Math.max(0, traceEntries.length - 6);
+
+  return `
+    <div class="provider-trace-tooltip-content">
+      <p class="tooltip-title">
+        ${traceEntries.length === 1 ? "Origen del producto" : `Pedidos asociados: ${traceEntries.length}`}
+      </p>
+      <ul class="provider-trace-list">${previewItems}</ul>
+      ${extraCount ? `<p class="tooltip-more">+${extraCount} pedido(s) mas</p>` : ""}
+    </div>
+  `;
+}
+
+function renderExpandedTraceRows(traceEntries) {
+  if (!traceEntries?.length) {
+    return `
+      <tr>
+        <td colspan="8" class="empty-state">Sin detalle de cliente disponible.</td>
+      </tr>
+    `;
+  }
+
+  return traceEntries
+    .map(
+      (trace) => `
+        <tr>
+          <td data-label="Cliente">${escapeHtml(trace.customer || "Sin cliente")}</td>
+          <td data-label="Pedido / venta">${escapeHtml(buildTraceReferenceLabel(trace))}</td>
+          <td data-label="Fecha">${escapeHtml(formatDate(trace.dateTime))}</td>
+          <td data-label="Vendedor">${escapeHtml(trace.seller || "Sin vendedor")}</td>
+          <td data-label="Cantidad">${formatNumber(trace.quantity)}</td>
+          <td data-label="Venta asociada">${formatCurrency(trace.adjustedRevenue)}</td>
+          <td data-label="Costo real">${formatCurrency(trace.totalCost)}</td>
+          <td data-label="Utilidad">${formatCurrency(trace.totalProfit)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
 function createProductOptions(products) {
   return products
     .map(
@@ -158,15 +230,68 @@ export function renderProviderDetailModal(detail) {
   const body = detail.items.length
     ? detail.items
         .map(
-          (item) => `
-            <tr>
-              <td data-label="Producto"><strong>${escapeHtml(item.productName)}</strong></td>
-              <td data-label="Cantidad">${formatNumber(item.quantity)}</td>
-              <td data-label="Venta asociada">${formatCurrency(item.totalRevenue)}</td>
-              <td data-label="Costo real">${formatCurrency(item.totalCost)}</td>
-              <td data-label="Utilidad">${formatCurrency(item.totalProfit)}</td>
-            </tr>
-          `,
+          (item) => {
+            const isExpanded = item.productKey === detail.expandedProductKey;
+
+            return `
+              <tr class="${isExpanded ? "is-expanded" : ""}">
+                <td data-label="Producto">
+                  <div class="provider-product-cell">
+                    <button
+                      class="product-trace-trigger"
+                      type="button"
+                      data-action="toggle-provider-trace"
+                      data-product-key="${escapeHtml(item.productKey)}"
+                      aria-expanded="${isExpanded ? "true" : "false"}"
+                    >
+                      <strong>${escapeHtml(item.productName)}</strong>
+                      <span class="product-trace-hint">${isExpanded ? "Ocultar origen" : "Ver origen"}</span>
+                    </button>
+                    <div class="product-trace-tooltip" role="tooltip">
+                      ${renderTraceTooltipContent(item.traceEntries)}
+                    </div>
+                  </div>
+                </td>
+                <td data-label="Cantidad">${formatNumber(item.quantity)}</td>
+                <td data-label="Venta asociada">${formatCurrency(item.totalRevenue)}</td>
+                <td data-label="Costo real">${formatCurrency(item.totalCost)}</td>
+                <td data-label="Utilidad">${formatCurrency(item.totalProfit)}</td>
+              </tr>
+              ${
+                isExpanded
+                  ? `
+                    <tr class="trace-expanded-row">
+                      <td colspan="5">
+                        <div class="trace-expanded-panel">
+                          <div class="trace-expanded-header">
+                            <strong>Origen del producto</strong>
+                            <span>${item.traceEntries.length} pedido(s) asociado(s)</span>
+                          </div>
+                          <div class="table-wrap trace-expanded-table">
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>Cliente</th>
+                                  <th>Pedido / venta</th>
+                                  <th>Fecha</th>
+                                  <th>Vendedor</th>
+                                  <th>Cantidad</th>
+                                  <th>Venta asociada</th>
+                                  <th>Costo real</th>
+                                  <th>Utilidad</th>
+                                </tr>
+                              </thead>
+                              <tbody>${renderExpandedTraceRows(item.traceEntries)}</tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  `
+                  : ""
+              }
+            `;
+          },
         )
         .join("")
     : `

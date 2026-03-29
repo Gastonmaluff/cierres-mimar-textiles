@@ -553,6 +553,117 @@ button:disabled {
   margin-top: 18px;
 }
 
+.provider-product-cell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+.product-trace-trigger {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.product-trace-trigger strong {
+  color: var(--ink);
+}
+
+.product-trace-hint {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.product-trace-tooltip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 10px);
+  z-index: 6;
+  display: none;
+  width: min(360px, 82vw);
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(20, 33, 31, 0.1);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 36px rgba(20, 33, 31, 0.16);
+}
+
+.provider-product-cell:hover .product-trace-tooltip,
+.provider-product-cell:focus-within .product-trace-tooltip {
+  display: block;
+}
+
+.provider-trace-tooltip-content p {
+  margin: 0;
+}
+
+.tooltip-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.provider-trace-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.provider-trace-list li {
+  display: grid;
+  gap: 2px;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.tooltip-more {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.trace-expanded-row td {
+  padding-top: 0;
+}
+
+.trace-expanded-panel {
+  margin-top: 2px;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(15, 118, 110, 0.05);
+}
+
+.trace-expanded-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.trace-expanded-header span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.trace-expanded-table {
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 16px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -835,6 +946,12 @@ pre {
 
   .modal-header {
     flex-direction: column;
+  }
+
+  .product-trace-tooltip {
+    left: 0;
+    right: auto;
+    width: min(320px, calc(100vw - 40px));
   }
 
   .file-picker-shell {

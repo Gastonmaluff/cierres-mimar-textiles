@@ -25,7 +25,7 @@ import { parseCsv } from "./utils/csv-parser.js";
 import { parseKyteSales } from "./utils/kyte-parser.js";
 import { normalizeKey, parseMoney, slugify } from "./utils/normalizers.js";
 
-const APP_VERSION = "2026-03-29a";
+const APP_VERSION = "2026-03-29b";
 const FIRESTORE_STEP_TIMEOUT_MS = 15000;
 
 const state = {
@@ -42,6 +42,7 @@ const state = {
   unmappedFormDrafts: {},
   productEditState: {},
   selectedProviderDetail: null,
+  providerDetailExpandedKey: "",
 };
 
 const elements = {
@@ -285,36 +286,66 @@ function buildProviderDetail(providerName) {
   }
 
   const groupedItems = new Map();
-  const providerItems = (state.currentClosure.sales || [])
-    .flatMap((sale) => sale.parsedItems || [])
-    .filter((item) => item.provider === providerName);
+  (state.currentClosure.sales || []).forEach((sale) => {
+    (sale.parsedItems || [])
+      .filter((item) => item.provider === providerName)
+      .forEach((item) => {
+        const productName = item.productBaseName || item.name || "Producto sin nombre";
+        const productKey = normalizeKey(productName) || productName;
+        const current = groupedItems.get(productKey) || {
+          productKey,
+          productName,
+          quantity: 0,
+          totalRevenue: 0,
+          totalCost: 0,
+          totalProfit: 0,
+          totalPayable: 0,
+          traceEntries: [],
+        };
 
-  providerItems.forEach((item) => {
-    const productName = item.productBaseName || item.name || "Producto sin nombre";
-    const current = groupedItems.get(productName) || {
-      productName,
-      quantity: 0,
-      totalRevenue: 0,
-      totalCost: 0,
-      totalProfit: 0,
-      totalPayable: 0,
-    };
-
-    current.quantity += Number(item.quantity) || 0;
-    current.totalRevenue += Number(item.adjustedRevenue) || 0;
-    current.totalCost += Number(item.providerPayable) || 0;
-    current.totalProfit += Number(item.profit) || 0;
-    current.totalPayable += Number(item.providerPayable) || 0;
-    groupedItems.set(productName, current);
+        current.quantity += Number(item.quantity) || 0;
+        current.totalRevenue += Number(item.adjustedRevenue) || 0;
+        current.totalCost += Number(item.providerPayable) || 0;
+        current.totalProfit += Number(item.profit) || 0;
+        current.totalPayable += Number(item.providerPayable) || 0;
+        current.traceEntries.push({
+          traceId: `${sale.id}-${item.id}`,
+          saleId: sale.id,
+          sourceRowNumber: sale.sourceRowNumber || "",
+          customer: sale.customer || "",
+          seller: sale.seller || "",
+          dateTime: sale.dateTime || "",
+          quantity: Number(item.quantity) || 0,
+          adjustedRevenue: Number(item.adjustedRevenue) || 0,
+          totalCost: Number(item.providerPayable) || 0,
+          totalProfit: Number(item.profit) || 0,
+        });
+        groupedItems.set(productKey, current);
+      });
   });
 
   const items = [...groupedItems.values()].sort((left, right) =>
     left.productName.localeCompare(right.productName, "es"),
   );
+  items.forEach((item) => {
+    item.traceEntries.sort((left, right) => {
+      const leftDate = new Date(left.dateTime || 0).getTime() || 0;
+      const rightDate = new Date(right.dateTime || 0).getTime() || 0;
+      if (leftDate !== rightDate) {
+        return leftDate - rightDate;
+      }
+
+      return (Number(left.sourceRowNumber) || 0) - (Number(right.sourceRowNumber) || 0);
+    });
+  });
+  const expandedProductKey = items.some((item) => item.productKey === state.providerDetailExpandedKey)
+    ? state.providerDetailExpandedKey
+    : "";
 
   return {
     provider: providerName,
     items,
+    expandedProductKey,
     summary: {
       totalRevenue: items.reduce((sum, item) => sum + item.totalRevenue, 0),
       totalCost: items.reduce((sum, item) => sum + item.totalCost, 0),
@@ -353,6 +384,7 @@ function openProviderDetail(providerName) {
     return;
   }
 
+  state.providerDetailExpandedKey = "";
   state.selectedProviderDetail = detail;
   renderAll();
 }
@@ -362,7 +394,19 @@ function closeProviderDetail() {
     return;
   }
 
+  state.providerDetailExpandedKey = "";
   state.selectedProviderDetail = null;
+  renderAll();
+}
+
+function toggleProviderTrace(productKey) {
+  if (!state.selectedProviderDetail) {
+    return;
+  }
+
+  state.providerDetailExpandedKey =
+    state.providerDetailExpandedKey === productKey ? "" : productKey;
+  state.selectedProviderDetail = buildProviderDetail(state.selectedProviderDetail.provider);
   renderAll();
 }
 
@@ -397,6 +441,7 @@ function recomputeClosure() {
   if (!state.rawSales.length) {
     state.currentClosure = null;
     state.selectedProviderDetail = null;
+    state.providerDetailExpandedKey = "";
     renderAll();
     return;
   }
@@ -971,6 +1016,7 @@ async function processCsvText(text, fileName) {
   state.unmappedFormDrafts = {};
   state.productEditState = {};
   state.selectedProviderDetail = null;
+  state.providerDetailExpandedKey = "";
   recomputeClosure();
 }
 
@@ -1443,6 +1489,7 @@ function handleHistoryClick(event) {
   state.manualAdjustments = closure.manualAdjustments || [];
   state.sourceFileName = closure.sourceFileName || "";
   state.selectedProviderDetail = null;
+  state.providerDetailExpandedKey = "";
   elements.closureDateInput.value = closure.closureDate || elements.closureDateInput.value;
   elements.closureNameInput.value = closure.closureName || "";
   renderAll();
@@ -1473,6 +1520,11 @@ function handleProviderDetailModalClick(event) {
       console.error("[provider-detail] Error al copiar detalle", error);
       setMessage("No pude copiar el detalle del proveedor.", "error");
     });
+    return;
+  }
+
+  if (action === "toggle-provider-trace") {
+    toggleProviderTrace(actionTarget?.dataset.productKey || "");
   }
 }
 
